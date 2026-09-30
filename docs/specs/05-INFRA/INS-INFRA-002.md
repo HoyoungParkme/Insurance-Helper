@@ -45,7 +45,7 @@ Azure Korea Central에 둔다. 데이터를 국내에 두고, Upstage 호출 지
 
 출처: [[INS-PRD-002#N3]]
 
-요청 제한(IP당 분당 10회, 세션당 분당 30회), 외부 호출 차단기(연속 5번 실패하면 60초 멈춤), 그래프 장애 때 벡터 검색만으로 동작, 운영 모드 게이트를 둔다.
+요청 제한(IP당 분당 10회, 세션당 분당 30회), 약관 검색과 심평원 조회의 차단기(연속 5번 실패하면 60초 멈춤), 그래프 장애 때 벡터 검색만으로 동작, 운영 모드 게이트를 둔다. 지금 요청 제한은 설정값과 제한기만 있고 어떤 엔드포인트에도 한도가 걸려 있지 않아, 이 제약을 다 지키지 못한다(9장).
 
 #### C5 운영 저장소는 PostgreSQL·pgvector와 Memgraph다
 
@@ -87,7 +87,7 @@ Standard_B2s(2 vCPU·4GB) VM 한 대에 모든 컨테이너를 올린다. 설계
 
 출처: [[INS-PRD-002#N5]] · [[INS-PRD-002#R13]]
 
-마이데이터·건강보험·OCR은 설정(`MYDATA_BACKEND`·`HEALTH_DATA_BACKEND`·`OCR_BACKEND`)으로 더미와 실연동을 고른다. 실연동으로 바꿀 때 주소·토큰 설정만 바꾼다.
+마이데이터·건강보험은 설정(`MYDATA_BACKEND`·`HEALTH_DATA_BACKEND`)으로 더미와 실연동을 고른다. 마이데이터는 실연동으로 바꿀 때 주소·토큰 설정만 바꾼다. 건강보험 실연동 어댑터는 아직 비어 있어 부르면 설정 오류를 낸다. OCR 설정(`OCR_BACKEND`)은 값이 `upstage` 하나다.
 
 ## 2. 구성도
 
@@ -134,7 +134,7 @@ flowchart LR
 | 문서 AI | Upstage Document Parse · OCR · Information Extract | 약관은 파싱, 사용자 서류는 IE |
 | PDF | PyMuPDF | 페이지 이미지와 하이라이트 |
 | 에이전트 | LangGraph · LangChain | ReAct 경로. 기본 꺼짐 |
-| 운영 | slowapi · pybreaker · prometheus-client · python-jose | 요청 제한 · 차단기 · `/metrics` · JWT |
+| 운영 | slowapi · pybreaker · prometheus-client · python-jose | 요청 제한기(엔드포인트 한도는 아직 없다) · 차단기(약관 검색·심평원) · `/metrics` · JWT |
 | CLI | typer (`ica`) | 적재·검증·재적재·그래프 생성·검색 평가·데모 시드 등 12개 명령 |
 | 로컬·테스트 | SQLite · Chroma | 운영에서는 쓰지 않는다 |
 | 배포 | Docker · docker compose · GitHub Actions · Azure VM · ACR | 이미지 두 개(`ica-backend`·`ica-web`) |
@@ -146,18 +146,18 @@ flowchart LR
 
 | 자리 | 하는 일 |
 |---|---|
-| `app/domains/` | 도메인 12개 — admin · attachments · auth · chunks · claims · coverage · documents · ingestion · rag · search · sessions · users. 도메인마다 router·schemas·service·crud·models |
+| `app/domains/` | 도메인 12개 — admin · attachments · auth · chunks · claims · coverage · documents · ingestion · rag · search · sessions · users. 기본형은 도메인마다 router·schemas·service·crud·models이고, 서비스나 crud가 없는 도메인도 있다(9장) |
 | `app/domains/admin/ports.py` | 관리자 그래프의 데이터원 포트. 지금 구현은 Memgraph 어댑터 |
 | `app/infrastructure/` | core(설정·DB) · embeddings · external(마이데이터·건강보험·HIRA·OCR 어댑터) · llm(Upstage 클라이언트·프롬프트 로더) · pdfimage(페이지 이미지·하이라이트) |
 | `app/shared/` | audit(감사 기록) · security(개인정보 마스킹) · tools(에이전트 도구) · insurers |
 | `app/interfaces/cli/` | `ica` 명령. 적재·검증 같은 운영 작업용이라 웹과 쓰기 경로가 겹치지 않는다. 그래서 라우터는 도메인 안에 둔다 |
 | `prompts/v1/` | 프롬프트 6개 — agent · assessment · explanation · help · intent · next_question |
 | `eval/` | E2E 하네스 · 검색 골든셋 · IE 벤치 · 모델 비교 |
-| `tests/` | 앱 구조를 따른 테스트 |
+| `tests/` | 도메인·모듈 이름별 한 단계 폴더로 둔 테스트. `app/`의 폴더 구조를 그대로 따르지는 않는다 |
 | `nginx/`, `Dockerfile`, `Dockerfile.web`, `docker-compose.prod.yml` | 배치 |
 | `infra/azure/` | VM·ACR 프로비저닝과 GitHub 시크릿 등록 스크립트 |
 
-syncdoc 코드 구조 기본형과 다른 점이 둘 있다. 백엔드가 `backend/` 아래가 아니라 루트 `app/`에 있다. 외부 연동 어댑터가 도메인 안이 아니라 `app/infrastructure/external/`에 모여 있다. 둘 다 9장에서 정한다.
+syncdoc 코드 구조 기본형과 다른 점이 넷 있다. 백엔드가 `backend/` 아래가 아니라 루트 `app/`에 있다. 외부 연동 어댑터가 도메인 안이 아니라 `app/infrastructure/external/`에 모여 있다. 서비스나 crud가 없는 도메인이 있다. 테스트 폴더가 `app/`의 거울이 아니다. 모두 9장에서 정한다.
 
 ## 5. 인증과 접근
 
@@ -167,7 +167,7 @@ syncdoc 코드 구조 기본형과 다른 점이 둘 있다. 백엔드가 `backe
 | 로그인 세션 | JWT(HS256, 60분)를 httponly·samesite=lax 쿠키로 준다. secure는 운영 모드에서만 건다 |
 | 운영 모드 (`APP_ENV=production`) | 데모 로그인·페르소나 목록이 404가 되고, 데모 시드가 꺼지고, 쿠키에 secure가 걸린다. 라이브는 HTTP라 켜지 못한다([[#C8]]) |
 | 관리자 그래프 | `ADMIN_GRAPH_ENABLED`가 거짓이면 404. 운영 모드에서는 로그인 사용자만 연다. 라이브는 비운영 모드라 누구나 연다. 약관은 공개 문서라 개인정보는 없다(사용자 결정 2026-07-29) |
-| 요청 제한 | IP당 분당 10회, 세션당 분당 30회 |
+| 요청 제한 | IP당 분당 10회, 세션당 분당 30회로 설정돼 있지만, 어떤 엔드포인트에도 한도가 걸려 있지 않다([[#C4]]) |
 | 교차 출처 | `CORS_ALLOW_ORIGINS`에 적은 출처만 받는다 |
 | Upstage | API 키(`UPSTAGE_API_KEY`) |
 | VM | SSH 키(`azureuser`). 키 파일은 저장소 밖 로컬(`infra/azure/.deploy_key`, gitignore)과 GitHub 시크릿에만 있다 |
@@ -192,7 +192,7 @@ syncdoc 코드 구조 기본형과 다른 점이 둘 있다. 백엔드가 `backe
 | 지표 | 백엔드 `/metrics` | 프로세스 수명 | 긁어 가는 수집기가 없다 |
 | 프롬프트·평가셋 | 저장소 `prompts/v1/`·`eval/` | 저장소 | |
 | 비밀값 | 로컬 `.env` · VM `/opt/ica/.env` · GitHub 시크릿 | | 저장소 밖 |
-| Upstage로 나가는 것 | 사용자 발화 · 약관 청크 · 서류 이미지 | 호출 단위 | 모델 입력은 원문이다. 개인정보 마스킹은 로그와 감사 기록에만 건다 |
+| Upstage로 나가는 것 | 사용자 발화 · 약관 청크 · 서류 이미지 | 호출 단위 | 대화 모델 입력은 원문이다. 서류는 이미지 원본이 OCR·정보 추출로 가고, 서류 분류와 다시 뽑기에는 개인정보를 가린 OCR 글이 간다. 그 밖의 마스킹은 로그와 감사 기록에 건다 |
 | 로컬 개발 데이터 | `app.db`(SQLite) · `chroma_db` | 로컬 | gitignore |
 
 ## 7. 외부 변경 감지
@@ -218,15 +218,16 @@ syncdoc 코드 구조 기본형과 다른 점이 둘 있다. 백엔드가 `backe
 ## 9. 미결사항
 
 - [ ] **CI와 배포 연결** — 배포 워크플로가 CI 결과를 기다리지 않는다 ([[#C10]])
+- [ ] **요청 제한 걸기** — 설정값과 제한기는 있지만 엔드포인트에 한도가 없다 ([[#C4]])
 - [ ] **CI와 이미지의 런타임 버전** — CI는 Python 3.11·Node 20, 이미지는 Python 3.12·Node 22다
 - [ ] **세션 저장소** — 백엔드를 여러 개로 늘리려면, 휘발 원칙을 지키는 공유 세션 저장소가 필요하다 ([[#C3]])
 - [ ] **백업** — PostgreSQL·Memgraph 볼륨의 자동 백업이 없다. 약관은 다시 적재할 수 있지만 Upstage 비용이 든다
 - [ ] **감사 기록 보존 기간** — 보험 분쟁 시효 기준 7년 안이 있으나 법무 확인 전이다
 - [ ] **설정 예시 정리** — `.env.example`에 OpenAI 키·모델 이름과, 코드에서 사라진 `RAG_MODE`·`RAG_BACKEND`가 남아 있다 ([[#C1]])
 - [ ] **Memgraph 이미지 버전 고정** — `latest`를 특정 버전으로 고정할지
-- [ ] **저장소 구조** — 백엔드를 `backend/`로 옮기고 외부 연동 어댑터를 도메인 안으로 옮길지, 지금 구조를 이유와 함께 확정할지
+- [ ] **저장소 구조** — 백엔드를 `backend/`로 옮기고, 외부 연동 어댑터를 도메인 안으로 옮기고, 빠진 서비스·crud 계층을 채우고, 테스트 폴더를 `app/`의 거울로 맞출지. 아니면 지금 구조를 이유와 함께 확정할지
 - [ ] **지표 수집** — `/metrics`를 긁는 수집기를 둘지
 - [ ] **라이브의 운영 모드** — HTTPS가 없어 운영 모드를 못 켜고, 관리자 그래프가 누구에게나 열려 있다 ([[#C8]])
-- [ ] **운영 문서의 자리** — 운영 런북과 데이터 인계 문서가 로컬에만 있다. 저장소에 올릴지
+- [ ] **운영 문서의 자리** — Azure 접속·운영 런북(`docs/infra/azure-access.md`)과 데이터 인계 문서(`docs/infra/data-handoff.md`)가 커밋되지 않은 채 로컬에만 있다. 재인덱싱 런북(`docs/ops/reindex-runbook.md`)은 저장소에 있다. 공개 저장소이므로 비밀값이 없는지 본 뒤 올릴지 정한다
 - [ ] **비밀값 교체** — 대화에 노출된 키를 대회 뒤 바꾼다
 - [ ] **설계 문서 정리** — 2026-06-24 설계 문서가 관리형 DB·Blob·Key Vault·HTTPS·백엔드 3개를 적고 있다. 실제 구성에 맞출지
