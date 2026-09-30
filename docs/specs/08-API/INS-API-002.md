@@ -78,7 +78,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 화면 [[INS-UI-003#UI-4]] · 유스케이스 [[INS-UC-002#UC-H1]] · 서비스 `sessions.service.create_session`
 
-첫 상황을 함께 보내면 첫 응답까지 만들어 돌려준다.
+화면은 상황 입력에서 확인을 시작할 때 본문 없이 불러 세션만 만든다. 첫 상황은 미리 채우기([[#POST/api/v1/sessions/{session_id}/slots]]) 뒤 스트림([[#POST/api/v1/sessions/{session_id}/messages/stream]])으로 보낸다. 첫 상황(`initial_message`)을 함께 보내면 첫 응답까지 한 번에 만들어 돌려주는데, 화면은 미리 채울 값 없이 세션을 다시 만들 때만 이렇게 쓴다.
 
 ```yaml
 /api/v1/sessions:
@@ -153,9 +153,9 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 #### POST/api/v1/sessions/{session_id}/slots 대화 정보 미리 채우기
 
-화면 [[INS-UI-003#UI-3]] · 유스케이스 [[INS-UC-002#UC-H4]] · [[INS-UC-002#UC-H5]] · 서비스 `sessions.service.seed_slots`
+화면 [[INS-UI-003#UI-4]] · 유스케이스 [[INS-UC-002#UC-H1]] · [[INS-UC-002#UC-H4]] · [[INS-UC-002#UC-H5]] · 서비스 `sessions.service.seed_slots`
 
-가입 현황에서 고른 보험과 불러온 정보를 모델을 거치지 않고 대화 정보에 넣는다.
+세션을 만든 직후, 첫 상황을 보내기 전에 부른다. 영역과 [[INS-UI-003#UI-3]]에서 고른 보험을 모델을 거치지 않고 대화 정보에 넣는다. 로그인 없이 들어와도 영역은 늘 보낸다.
 
 ```yaml
 /api/v1/sessions/{session_id}/slots:
@@ -216,7 +216,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 화면 [[INS-UI-003#UI-8]] · 유스케이스 [[INS-UC-002#UC-H8]] · 서비스 `sessions.service.answer_help`
 
-세션 없이 질문 하나에 답 하나를 돌려준다. 실손 일반 질문이면 표준약관 인용이 붙는다.
+세션 없이 질문 하나에 답 하나를 돌려준다. 질문으로 약관을 보험사 구분 없이 찾아, 실손 일반 질문이면 찾은 조항을 인용한다. 사용법 질문이면 인용이 없다.
 
 ```yaml
 /api/v1/sessions/help:
@@ -303,7 +303,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 화면 [[INS-UI-003#UI-6]] · 유스케이스 [[INS-UC-002#UC-H6]] · 서비스 없음 — 라우터가 OCR·정보 추출 어댑터, 모델 분류·추출, 첨부 저장, 세션 저장소를 직접 부른다
 
-서류 종류를 가리고 항목을 뽑아 돌려준다. 첨부는 24시간 뒤 지운다.
+서류 종류를 가리고 항목을 뽑아 돌려준다. 분류·추출의 모델 오류(`LLMError`)는 빈 항목으로 200을 돌려주지만, 감싸지 않은 연결 오류는 500이 된다(5장). 뽑은 항목은 응답으로만 돌아가고 대화 정보에는 들어가지 않는다. 첨부는 24시간 뒤 지운다.
 
 ```yaml
 /api/v1/sessions/{session_id}/documents:
@@ -336,7 +336,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
                 low_confidence: {type: boolean, description: 신뢰도 0.6 미만이면 참 — 다시 찍기 안내}
       '400': {description: INVALID_FILE · FILE_READ_ERROR}
       '404': {description: SESSION_NOT_FOUND}
-      '500': {description: STORAGE_ERROR}
+      '500': {description: STORAGE_ERROR · INTERNAL_ERROR(분류·추출의 연결 오류)}
       '502': {description: OCR_FAILED}
       '503': {description: OCR_NOT_CONFIGURED}
 ```
@@ -345,9 +345,9 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 #### POST/api/v1/auth/demo-login 시연 계정 로그인
 
-화면 [[INS-UI-003#UI-2]] · 유스케이스 [[INS-UC-002#UC-H4]] · 서비스 없음 — 라우터가 시연 계정 목록과 DB 세션을 직접 쓴다
+화면 [[INS-UI-003#UI-3]] · 유스케이스 [[INS-UC-002#UC-H4]] · 서비스 없음 — 라우터가 시연 계정 목록과 DB 세션을 직접 쓴다
 
-이름과 휴대폰 번호로 시연 계정을 찾아 로그인한다.
+이름과 휴대폰 번호로 시연 계정을 찾아 로그인한다. 화면은 가입 현황에 들어올 때 부르고, 실패하면 가입이 없을 때와 같은 빈 상태를 보인다.
 
 ```yaml
 /api/v1/auth/demo-login:
@@ -461,7 +461,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 화면 [[INS-UI-003#UI-3]] · [[INS-UI-003#UI-7]] · 유스케이스 [[INS-UC-002#UC-H4]] · 서비스 없음 — 라우터가 마이데이터 어댑터를 직접 부른다
 
-실손만 돌려준다. 실손이 아닌 보험은 어댑터가 버린다.
+실손만 돌려준다. 실손이 아닌 보험은 어댑터가 버린다. 시연 계정과 연결되지 않은 사용자는 빈 목록을 받는다. 마이데이터 실연동 설정이 없으면 예외를 받지 않아 500이 된다(5장).
 
 ```yaml
 /api/v1/auth/me/insurances:
@@ -477,11 +477,12 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
               properties:
                 insurances: {type: array, items: {type: object, description: 보험사·상품·증권번호·가입일·세대}}
       '401': {description: AUTH_REQUIRED}
+      '500': {description: INTERNAL_ERROR — 실연동 설정이 없을 때}
 ```
 
 #### GET/api/v1/me/health/history 내 진료내역
 
-화면 [[INS-UI-003#UI-8]] · 유스케이스 [[INS-UC-002#UC-H4]] · 서비스 없음 — 라우터가 건강보험 어댑터를 직접 부른다
+화면 [[INS-UI-003#UI-8]] · 유스케이스 [[INS-UC-002#UC-H8]] · [[INS-UC-002#UC-S7]] · 서비스 없음 — 라우터가 건강보험 어댑터를 직접 부른다
 
 도움 챗봇의 빠른 작업이 부른다. 고른 진료는 설명 문장이 되어 상담에 보내진다.
 
@@ -742,7 +743,7 @@ components:
     ClaimChecklist: {area: string|null, items: [ChecklistItem]}
     ChecklistItem: {id*: string, label*: string, required*: boolean, reason*: string}
     ClaimSummary: {insurer, product, area, likelihood, summary, satisfied: [string], unsatisfied: [string], next_steps: [string], checklist: [ChecklistItem]}
-    ClaimReceipt: {receipt_no*: string, submitted_at*: datetime, status: string, insurer: string|null, estimated_days: integer, message*: string}
+    ClaimReceipt: {receipt_no*: string, submitted_at*: string, status: string, insurer: string|null, estimated_days: integer, message*: string}
     AttachmentMeta: {id, session_id, sha256, size, mime_type, filename, created_at, expires_at}
     TreatmentCard: {treatment_id, treatment_date, hospital_name, department, diagnosis_summary, is_hospitalization, hospitalization_days, outpatient_visits, total_cost, claim_amount}
     DemoLoginRequest: {name*: string, phone*: string}
@@ -756,12 +757,12 @@ components:
     GraphView: {nodes: [{id, label, node_type, "…"}], edges: [{id, source, target, type}], node_count: integer, edge_count: integer}
 ```
 
-`AssistantAnswer`(판정 뒤 자유 질의의 답)는 도메인 모델에 아직 개념으로 없다. 클래스 명세 때 도메인 모델에 더한다.
+`AssistantAnswer`는 도메인 모델의 설명 답([[INS-DOM-004#AssistantAnswer]])이다. `HelpResponse`는 도움 답([[INS-DOM-004#HelpAnswer]])에서 내 보험 확인이 필요한지를 빼고 보낸다. `ClaimReceipt.submitted_at`은 ISO 8601 문자열로 만든다.
 
 ## 5. 미결사항
 
 - [ ] **요청 제한 미적용** — 설정값(IP당 분당 10회, 세션당 분당 30회)은 있지만 어떤 엔드포인트에도 걸려 있지 않다. PRD [[INS-PRD-002#N3]]와 인프라 [[INS-INFRA-002#C4]]가 적은 요청 제한이 실제로는 없다
-- [ ] **에러 모양 통일** — 에러 본문이 세 모양으로 갈린다. 프론트 클라이언트는 `{"detail": {"code", "message"}}` 모양을 읽지 못해 인증·첨부·진료내역·관리자 에러를 모두 `UNKNOWN`으로 처리한다. 한 모양으로 맞추는 처리기를 둘지
+- [ ] **에러 모양 통일** — 에러 본문이 세 모양으로 갈린다. 프론트 클라이언트는 `{"detail": {"code", "message"}}` 모양을 읽지 못해 인증·진료내역 에러를 `UNKNOWN`으로 처리한다. 서류 업로드는 응답을 따로 읽고, 관리자 화면은 클라이언트를 쓰지 않는다. 한 모양으로 맞추는 처리기를 둘지
 - [ ] **세션 접근** — 세션이 사용자나 쿠키에 묶이지 않아, 세션 id를 아는 요청은 그 세션의 대화 정보를 읽고 쓸 수 있다. 세션을 쿠키에 묶을지
 - [ ] **로그아웃** — 로그아웃을 부르는 화면이 없다. 공용 기기에서는 로그인 쿠키가 60분 동안 남는다
 - [ ] **화면에서 쓰지 않는 엔드포인트 10개** — 비스트리밍 메시지, 보험사·상품 목록, 시연 계정 목록, 가입·로그인·로그아웃·내 계정, 필요 서류 단독 조회, 그래프 범위 목록. 남길지 정리할지
@@ -770,4 +771,7 @@ components:
 - [ ] **빈 라우터** — chunks·search 라우터가 경로 없이 등록돼 있다
 - [ ] **PDF 업로드** — 화면은 PDF를 보내는데 서버는 `INVALID_FILE`로 거절한다 ([[INS-UI-003#UI-6]])
 - [ ] **관리자 화면의 직접 호출** — 관리자 그래프 화면이 API 클라이언트 모듈을 거치지 않고 fetch를 직접 쓴다
+- [ ] **마이데이터 실연동 에러** — 실연동 설정이 없을 때 나는 예외를 라우터가 받지 않아 500이 된다. 진료내역처럼 503 코드로 바꿀지 ([[#GET/api/v1/auth/me/insurances]])
+- [ ] **서류 분류의 연결 오류** — 분류·추출 모델 호출의 연결 오류는 `LLMError`로 감싸지 않아 500이 된다. 그때 파일은 이미 저장돼 있다 ([[#POST/api/v1/sessions/{session_id}/documents]])
+- [ ] **서류 항목** — 업로드가 뽑은 항목은 응답으로만 돌아가고 대화 정보에 들어가지 않는다 ([[INS-UC-002#UC-H6]])
 - [ ] **가입 보험의 실손 한정** — 이 엔드포인트가 실손만 돌려줘서, 가입 현황에 실손이 아닌 보험을 보여 줄 수 없다 ([[INS-PRD-002#R16]])
