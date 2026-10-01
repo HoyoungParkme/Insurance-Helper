@@ -10,7 +10,7 @@ upstream: [INS-DOM-004, INS-API-002, INS-UC-002, INS-INFRA-002, INS-UI-003]
 
 > 1. 서버는 도메인 12개(`app/domains/*`), 설정과 외부 연동(`app/infrastructure`), 공용(`app/shared`), 운영 명령(`app/interfaces/cli`)으로 나뉜다. 서비스는 클래스가 아니라 모듈 함수다. 그래서 이 문서는 모듈 하나를 설계 클래스 하나로 그렸다.
 > 2. 테이블이 있는 엔티티는 7개다(보험사·상품·상품 버전·약관 문서·약관 청크·사용자·감사 기록). 대화 세션은 테이블 없이 서버 메모리에만 있다.
-> 3. 코드를 대조하다 찾은 것은 미결사항에 적었다. 서류 사진에서 뽑은 항목이 대화 정보에 들어가지 않는다. 판정 입력 중 계약 기간·급여/비급여 금액은 채우는 곳이 없어, 보장기간 규칙과 자기부담 계산이 대화에서는 돌지 않는다. 서비스 없는 라우터와 crud 없는 도메인도 있다.
+> 3. 코드를 대조하다 찾은 것은 미결사항에 적었다. 서류 사진에서 뽑은 항목이 대화 정보에 들어가지 않는다. 판정 입력 중 계약 기간·급여/비급여 금액은 채우는 곳이 없어, 보장기간 규칙과 자기부담 계산이 대화에서는 돌지 않는다. 판정·설명 답의 LLM 호출은 재시도 장식자가 엉뚱한 함수에 붙어 SDK 재시도만 받는다. 서비스 없는 라우터와 crud 없는 도메인도 있다.
 
 ## 0. 이 문서가 다루는 것
 
@@ -18,7 +18,6 @@ upstream: [INS-DOM-004, INS-API-002, INS-UC-002, INS-INFRA-002, INS-UI-003]
 - 서비스는 파이썬 모듈 함수다. 모듈 하나(또는 한 역할을 나눠 가진 파일 몇 개)를 설계 클래스 하나로 그리고, 헤딩 바로 아래에 실제 파일을 적는다. 예를 들어 [[#SessionService]]는 `app/domains/sessions/service.py`다
 - 엔티티(2장)는 테이블이 있는 ORM 클래스 7개와, 도메인 모델([[INS-DOM-004]])의 개념을 옮긴 응답·메모리 클래스 20개다. 테이블 이름은 이 문서 다음에 쓸 ERD의 항목과 링크로 잇는다
 - 메서드 표의 "부르는 곳"은 API 항목([[INS-API-002]]), 다른 설계 클래스, CLI 명령(`ica …`) 가운데 하나다. "던지는 에러"는 파이썬 예외 → 라우터가 바꾼 에러 코드 순으로 적는다
-- 도메인 모델에 없던 `AssistantAnswer`(판정 뒤 자유 질문의 답)를 2장에 넣었다. 도메인 모델 쪽 보완은 미결사항에 남긴다
 
 ## 1. 폴더 구조
 
@@ -200,7 +199,7 @@ classDiagram
 | `id` | 상품 코드. 기본 키. 약관 폴더 경로의 셋째 칸에서 온다 |
 | `insurer_id` | 보험사 코드. 외래 키 → `insurers` |
 | `area` | 영역. 허용값은 `auto`·`accident_disease`·`fire`지만 적재된 것은 실손(`accident_disease`)뿐이다 |
-| `name` | 상품 이름. 지금은 적재가 상품 코드를 그대로 넣는다 |
+| `name` | 상품 이름. 지금 행은 `실손의료보험`이다. 새 상품을 적재하면 적재가 이름 자리에 상품 코드를 넣는다 |
 | `created_at` | 적재 시각 |
 
 [[#Insurer]]에 속하고, `versions`로 [[#ProductVersion]]을 여럿 갖는다.
@@ -302,7 +301,7 @@ classDiagram
 |---|---|
 | `id` | 청크 id. 기본 키. 인용과 그래프 노드가 이 값으로 가리킨다 |
 | `document_id` | 약관 문서. 외래 키 → `documents` |
-| `parent_chunk_id` | 상위 청크(조 → 항). 외래 키 → `clause_chunks`. 비어도 된다 |
+| `parent_chunk_id` | 상위 청크(조 → 항)를 가리키는 외래 키 → `clause_chunks`. 지금은 모든 행이 비어 있고, 상하 관계는 `clause_no`로 잇는다 |
 | `insurer_id` | 보험사 코드 복사본. 조인 없이 벡터 검색을 거르려고 둔다 |
 | `product_id` | 상품 코드 복사본. 검색 필터용 |
 | `area` | 영역 복사본. 검색 필터용 |
@@ -542,7 +541,7 @@ classDiagram
   }
 ```
 
-`claim_amount`는 본인 부담 금액이다. `slot_mapping`은 이 진료를 고르면 대화 정보에 채울 값이다.
+`claim_amount`는 본인 부담 금액이다. `slot_mapping`은 이 진료를 고르면 대화 정보에 채울 값으로 만들었지만 지금은 쓰이지 않는다. 고른 진료는 화면이 설명 문장으로 바꿔 대화에 보낸다.
 
 #### AttachmentMeta 첨부 서류
 
@@ -712,7 +711,7 @@ classDiagram
 
 #### AssistantAnswer 설명 답
 
-`app/domains/sessions/schemas.py`. 판정 뒤 자유 질문에 조항을 인용해 답한 것이다. 도메인 모델에 아직 개념이 없다(5장).
+`app/domains/sessions/schemas.py`. 판정 뒤 자유 질문에 조항을 인용해 답한 것이다. 도메인 모델의 [[INS-DOM-004#AssistantAnswer]]다.
 
 ```mermaid
 classDiagram
@@ -1169,12 +1168,14 @@ classDiagram
 | `generate_assessment(slots, chunks, coverage, notes, on_delta) -> AssistantAssessment` | [[#SessionService]] | [[INS-UC-002#UC-S4]] · [[INS-UC-002#UC-S6]] | `LLMError`(청크 없음·호출 실패) · `SchemaViolationError`(인용이 모두 환각·형식 위반) |
 | `generate_explanation(question, chunks, history, notes, on_delta) -> AssistantAnswer` | [[#SessionService]] | [[INS-UC-002#UC-H3]] · [[INS-UC-002#UC-S4]] | `LLMError` · `SchemaViolationError` |
 | `generate_help_answer(question, chunks) -> HelpAnswer` | [[#SessionService]] | [[INS-UC-002#UC-H8]] | `LLMError`(폴백 호출까지 실패) |
-| `classify_document(text) -> dict` | 서류 업로드 라우터 | [[INS-UC-002#UC-S8]] | `LLMError` — 라우터가 삼키고 빈 결과로 둔다 |
-| `extract_slots_from_document(text, doc_type) -> dict` | 서류 업로드 라우터 | [[INS-UC-002#UC-S8]] | `LLMError` — 라우터가 삼키고 빈 결과로 둔다 |
+| `classify_document(text) -> dict` | 서류 업로드 라우터 | [[INS-UC-002#UC-S8]] | `LLMError` — 라우터가 삼키고 빈 결과로 둔다. 연결 오류는 감싸지 않아 500이 된다 |
+| `extract_slots_from_document(text, doc_type) -> dict` | 서류 업로드 라우터 | [[INS-UC-002#UC-S8]] | `LLMError` — 라우터가 삼키고 빈 결과로 둔다. 연결 오류는 감싸지 않아 500이 된다 |
 
 규칙
 
 - 프롬프트는 `prompts/v1/*.md`, 모델은 Solar다. 응답은 JSON 스키마로 검증하고, 틀리면 `SchemaViolationError`다(라우터는 이것도 `LLM_UNAVAILABLE`로 바꾼다)
+- 형식이 틀렸을 때: 판정 답과 설명 답은 재시도 지시를 붙여 한 번 더 부르고(스트리밍 없이), 그래도 틀리면 `SchemaViolationError`를 던진다. 도움 답은 인용 없는 답으로 한 번 더 부른다. 사실 추출·되묻기·분류는 다시 요청하지 않는다
+- 연결·한도·시간 초과·서버 오류일 때: SDK가 두 번까지 다시 보낸다(`LLM_MAX_RETRIES`). 도구 호출로 부르는 다섯(사실 추출·되묻기·의도 분류·서류 분류·서류 항목 추출)은 그 위에서 호출을 세 번까지 되풀이한다. 판정·설명·도움 답의 구조화 호출에는 이 되풀이가 없다(5장)
 - 판정 답은 [[#CoverageEngine]]의 결과를 받아 설명한다. 인용은 이번 턴에 검색한 청크 안에서만 고른다. 밖의 id는 버린다
 - 인용을 만들 때 원본 경로를 [[#DocumentsService]]에서 받아 페이지 이미지와 하이라이트를 만든다([[#PdfImageService]])
 - 판정 답을 만든 뒤 준비도를 계산해 붙인다([[#ReadinessCalculator]])
@@ -1388,7 +1389,7 @@ classDiagram
 
 - Memgraph에 결정론 Cypher만 보낸다. 신경망을 쓰지 않는다
 - `clause_candidates`는 질의 낱말이 조항 제목에 몇 개 나오는지로 후보를 고른다
-- `expand`는 뉴럴 결과에서 구조 이웃을 따라간다. 본문이 가리키는 별표·붙임(`REFERS_TO`)과, 같은 조의 다른 청크(`HAS_SUBCLAUSE` 형제)다
+- `expand`는 뉴럴 결과에서 구조 이웃을 따라간다. 본문이 가리키는 별표·붙임(`REFERS_TO`)과, 같은 조의 다른 청크(형제)다. 형제는 `HAS_SUBCLAUSE` 관계를 따라가지 않고 같은 문서·같은 조 번호 속성으로 찾는다
 
 #### VectorStoreAdapter 벡터 저장소 포트
 
@@ -1568,7 +1569,7 @@ classDiagram
 
 규칙
 
-- `process_pdf`는 파싱(`parser`) → 구조 인식(`structure`, 조·항·호·별표 경계) → 자르기(`chunker`, 최대 1,000토큰) 순서다. 머리말·꼬리말은 파싱 때 뺀다
+- `process_pdf`는 파싱(`parser`) → 구조 인식(`structure`, 조·항·호·별표 경계) → 자르기(`chunker`, 1,000토큰을 넘으면 문단 단위로 나누고, 임베딩 입력 상한 3,500토큰을 넘지 않게 한다) 순서다. 머리말·꼬리말은 파싱 때 뺀다
 - 파서는 `TERMS_PARSER`로 고른다. 기본은 Upstage Document Parse(`upstage`)이고 PyMuPDF(`pymupdf`)는 폴백이다
 - 청크 교체는 문서 단위로 지우고 다시 넣는다
 
@@ -1692,9 +1693,9 @@ classDiagram
 
 규칙
 
-- 구현은 둘이다. `DummyAdapter`(기본)는 `data/demo/mydata.json`의 표준 규격 모양 더미를 읽는다. `RealAdapter`는 뼈대라 부르면 `MydataNotConfiguredError`다
-- 표준 모양을 내부 모양으로 바꾸고(`normalize_standard_insurance`), 가입일로 실손 세대를 정한다(`derive_generation`)
-- 상품명으로 실손이 아니거나 정상 계약이 아니면 뺀다. 그래서 가입 현황에 실손이 아닌 보험을 보여 줄 수 없다([[INS-API-002]] 5장)
+- 구현은 둘이다. `DummyAdapter`(기본)는 `data/demo/mydata.json`에 내부 모양으로 준비된 값(세대 포함, 실손만)을 그대로 돌려준다. `RealAdapter`는 표준 API(`/v2/insu/insurances`·`/basic`)를 부르고, 주소와 토큰이 없을 때만 `MydataNotConfiguredError`를 낸다
+- 실연동은 표준 모양을 내부 모양으로 바꾸고(`normalize_standard_insurance`), 가입일로 실손 세대를 정한다(`derive_generation`)
+- 실연동은 상품명으로 실손이 아니거나 정상 계약이 아니면 뺀다. 더미에는 처음부터 실손만 있다. 그래서 가입 현황에 실손이 아닌 보험을 보여 줄 수 없다([[INS-API-002]] 5장)
 
 #### HealthDataAdapter 진료내역 어댑터
 
@@ -1747,7 +1748,7 @@ classDiagram
 
 - JPEG·PNG·WebP, 10MB까지 받는다. PDF는 받지 않는데 화면은 PDF를 보낸다([[INS-UI-003#UI-6]], 5장)
 - 업로드 절차(라우터에 있다): 문자 인식 → 개인정보 가림 → 서류 분류 → 항목 추출. 항목 추출은 IE를 먼저 쓰고, 실패하면 LLM 추출로 넘어간다
-- 분류·추출이 실패해도 저장은 성공으로 돌려준다
+- 분류·추출이 모델 오류(`LLMError`)로 실패하면 빈 항목으로 성공을 돌려준다. 연결 오류는 감싸지 않아 500이 되고, 그때 파일은 이미 저장돼 있다(5장)
 - 뽑은 항목은 응답으로만 돌려준다. 서버의 대화 정보에도 대화 기록에도 넣지 않는다. 화면은 항목을 어시스턴트 메시지로 보여 주고 확인을 받지만, 그 메시지는 화면에만 있어 다음 턴의 사실 추출이 보지 못한다. 그래서 [[INS-UC-002#UC-H6]] 3단계(대화 정보에 채운다)가 지금은 일어나지 않는다(5장)
 
 #### OcrAdapter 서류 인식 어댑터
@@ -1916,7 +1917,7 @@ classDiagram
 | `createSession` · `streamMessage` · `seedSlots` · `getSessionState` · `closeSession` · `uploadDocument` | `useSession` — [[INS-UI-003#UI-4]] · [[INS-UI-003#UI-5]] · [[INS-UI-003#UI-6]] | [[INS-UC-002#UC-H1]] · [[INS-UC-002#UC-H3]] · [[INS-UC-002#UC-H4]] · [[INS-UC-002#UC-H6]] | `IcaApiError`. 스트림은 `error` 이벤트를 `onError`로 넘긴다. 업로드는 자체 파서로 `detail.code`를 읽는다 |
 | `helpAsk` | `HelpLauncher` — [[INS-UI-003#UI-8]] | [[INS-UC-002#UC-H8]] | `IcaApiError` |
 | `fetchClaimSummary` · `submitClaim` | [[INS-UI-003#UI-7]] | [[INS-UC-002#UC-H7]] | `IcaApiError` |
-| `demoLogin` · `fetchInsurances` · `fetchHealthHistory` | `AppFlow` · [[INS-UI-003#UI-3]] · [[INS-UI-003#UI-7]] · [[INS-UI-003#UI-8]]의 진료내역 패널 | [[INS-UC-002#UC-H4]] · [[INS-UC-002#UC-S7]] | `IcaApiError`. 서버 에러 모양이 달라 코드가 `UNKNOWN`이 된다 |
+| `demoLogin` · `fetchInsurances` · `fetchHealthHistory` | [[INS-UI-003#UI-3]](시연 로그인·가입 보험) · [[INS-UI-003#UI-7]](가입 보험) · [[INS-UI-003#UI-8]]의 진료내역 패널 | [[INS-UC-002#UC-H4]] · [[INS-UC-002#UC-S7]] | `IcaApiError`. 서버 에러 모양이 달라 코드가 `UNKNOWN`이 된다 |
 | `postMessage` · `listInsurers` · `listProducts` · `fetchDemoPersonas` | 부르는 곳 없음 | — | — |
 
 규칙
@@ -1928,7 +1929,7 @@ classDiagram
 
 ## 5. 미결사항
 
-- [ ] **서류 항목이 대화 정보에 안 들어간다** — 서류 업로드가 뽑은 항목을 응답으로만 돌려주고, 화면도 메시지로 보여 주기만 한다. 서버의 대화 정보와 대화 기록에 들어가지 않아 판정에 쓰이지 않는다([[#AttachmentsService]]). [[INS-UC-002#UC-H6]] 3단계·성공 보장과 [[INS-UI-003#UI-6]] 규칙은 채워진다고 적었다. 확인을 받은 뒤 화면이 `seedSlots`로 넣게 할지, 업로드 라우터가 세션에 합치게 할지 정하고, 그 전까지는 두 문서를 지금 동작에 맞춘다
+- [ ] **서류 항목이 대화 정보에 안 들어간다** — 서류 업로드가 뽑은 항목을 응답으로만 돌려주고, 화면도 메시지로 보여 주기만 한다. 서버의 대화 정보와 대화 기록에 들어가지 않아 판정에 쓰이지 않는다([[#AttachmentsService]]). [[INS-UC-002#UC-H6]]과 [[INS-UI-003#UI-6]]은 채워지는 것을 목표로 두고, 지금 동작을 미결로 적었다. 화면이 `seedSlots`로 넣게 할지, 업로드 라우터가 세션에 합치게 할지 정한다
 - [ ] **`ica search`가 Chroma를 본다** — 이 명령은 설정과 상관없이 search 도메인의 Chroma 함수를 부른다. 운영 저장소가 pgvector라 결과가 비거나 낡는다. [[#RagService]]로 바꿀지
 - [ ] **서버 폴더 위치** — 기본형은 `backend/app/`인데 루트 `app/`이다(1.1). 옮기면 Dockerfile·CI·`ica` 진입점·테스트 경로가 함께 바뀐다. 옮길지
 - [ ] **서비스 없는 라우터** — 서류 업로드·인증·진료내역 라우터가 저장소·어댑터·DB를 직접 부른다(3.2). 서류 업로드 절차를 `AttachmentsService`로, 시연 로그인·가입 보험을 auth 서비스로 옮길지
@@ -1940,14 +1941,12 @@ classDiagram
 - [ ] **`SessionLlm` 크기** — `sessions/llm.py` 한 파일(1,649줄)에 LLM 호출·스키마 검증·인용 조립(원본 경로·페이지 이미지·하이라이트)이 섞여 있다. 인용 조립을 나눌지
 - [ ] **포트에 없는 메서드** — [[#OcrAdapter]] 포트에는 `extract_text`만 있어, 라우터가 IE 호출에 타입 검사를 끄고 쓴다. 포트에 올릴지
 - [ ] **구현이 하나뿐인 포트** — [[#GraphSourcePort]]는 두 번째 구현(연구팀 JSON)을 기다리며 먼저 만들었다. 규약은 두 번째 구현이 생길 때 만들라고 한다. 연구팀 JSON이 안 오면 걷어낼지
+- [ ] **LLM 호출의 재시도와 감싸기** — 재시도 장식자가 `_call_structured`가 아니라 그 위에 끼어든 `_partial_json_string`에 붙어 있어, 판정·설명·도움 답은 SDK 재시도만 받는다. 서류 분류·항목 추출은 SDK 예외를 `LLMError`로 감싸지 않아 연결 오류가 500이 된다([[#SessionLlm]] · [[#AttachmentsService]]). 장식자를 옮기고 예외를 감쌀지
 - [ ] **마이데이터 실연동 에러** — `RealAdapter`의 `MydataNotConfiguredError`를 라우터가 받지 않아 500이 된다. 진료내역처럼 503 코드로 바꿀지
 - [ ] **세션과 워커 수** — [[#SessionStore]]는 잠금 없는 프로세스 메모리다. 백엔드를 여러 개로 늘리면 세션이 갈린다. 늘리기 전에 저장소를 정해야 한다
 - [ ] **쓰이지 않는 것** — chunks·search 빈 라우터, `get_chunk`(부르는 곳 없음), `list_chunks`·`delete_attachment`·`SessionStore.count`·`purge_expired`·`VectorRetriever.retrieve`·`NeuroSymbolicRetriever.health`·`SymbolicGraphChannel.health`(테스트만), 화면이 안 부르는 클라이언트 함수 넷, `data/static/fault_ratio/`(자동차 과실비율 잔재), `docker-compose.neo4j.yml`(Memgraph로 바꾼 뒤 잔재), 영역 허용값 `auto`·`fire`, 화면 타입의 `fault_ratio`. 정리할지
 - [ ] **발표 자료 스크립트** — `scripts/`에 제품과 무관한 발표·제안서 스크립트 10개가 있고, 그중 둘은 다른 과제(VODA 데이터 카탈로그) 장표다. 공개 저장소에서 뺄지
 - [ ] **`tags_json` 이름** — JSON이 아니라 쉼표로 이은 문자열이 들어간다. 이름이나 내용을 맞출지
 - [ ] **Section 클래스** — 도메인 개념 [[INS-DOM-004#Section]]에 해당하는 클래스와 열이 없다. 같은 조 번호가 본문·부속에 되풀이되므로, 청크에 구간을 저장할지
-- [ ] **AssistantAnswer 개념** — 도메인 모델([[INS-DOM-004]])에 [[#AssistantAnswer]]를 개념으로 더한다
-- [ ] **API 명세와 다른 점 둘** — ① `ClaimReceipt.submitted_at`은 코드에서 문자열(`str`)인데 API 명세 4장은 `datetime`으로 적었다 ② API 명세 5장 "에러 모양 통일"은 첨부·관리자 에러도 `UNKNOWN`이 된다고 적었지만, 서류 업로드는 자체 파서로 읽고 관리자 화면은 클라이언트를 쓰지 않는다. `UNKNOWN`이 되는 것은 인증·진료내역 에러다([[#ApiClient]]). API 명세를 고친다
 - [ ] **ShowcasePage** — `/showcase` 디자인 견본 화면이 화면 명세([[INS-UI-003]])에 없다. 남길지
 - [ ] **테스트 폴더 모양** — `tests/`가 `app/`의 거울이 아니라 한 단계로 펼쳐져 있다(1.6). 거울로 맞출지
-- [ ] **ERD 링크** — 2장 링크 줄의 테이블 문서를 INS-DOM-006으로 적었다. ERD가 다른 번호로 만들어지면 링크 줄을 고친다
