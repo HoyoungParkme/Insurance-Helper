@@ -825,9 +825,10 @@ def upload_document(session_id: str, file: UploadFile = File(...), current_user:
 7. `if IE 스키마가 있는 종류 → Upstage IE로 원본 이미지에서 항목을 뽑는다 · if 실패 → 다음으로`
 8. `if 뽑은 항목이 없다 → SessionLlm.extract_slots_from_document(가린 글자, 종류)`
 9. `if 6~8에서 LLMError → 빈 분류·빈 항목으로 둔다`
-10. 첨부 메타·종류·신뢰도·뽑은 항목·OCR 신뢰도·저신뢰(0.6 미만)를 돌려준다
+10. `if 뽑은 항목이 있고 OCR 신뢰도가 0.6 이상 → SessionService.seed_slots(세션 id, 항목)로 대화 정보에 병합(모델 없음)` · `if 값이 SlotState 검증을 못 넘는다 → 병합하지 않고 경고만` · 저신뢰면 병합하지 않는다
+11. 첨부 메타·종류·신뢰도·뽑은 항목·OCR 신뢰도·저신뢰(0.6 미만)·병합 여부(`applied`)·병합 뒤 대화 정보와 빠진 칸을 돌려준다
 
-**출력** JSON(`attachment`, `doc_type`, `doc_type_confidence`, `extracted_slots`, `ocr_confidence`, `low_confidence` 등)
+**출력** JSON(`attachment`, `doc_type`, `doc_type_confidence`, `extracted_slots`, `ocr_confidence`, `low_confidence`, `applied`, `slots`, `missing`)
 
 **예외**
 
@@ -839,10 +840,11 @@ def upload_document(session_id: str, file: UploadFile = File(...), current_user:
 | 저장 실패 | `STORAGE_ERROR`(500) |
 | OCR 설정 없음·호출 실패 | `OCR_NOT_CONFIGURED`(503)·`OCR_FAILED`(502) |
 
-**호출하는 것** [[#SessionStore.get]] · [[#AttachmentsService.save_bytes]] · [[#PiiMasker.mask_pii]] · [[#SessionLlm.classify_document]] · [[#SessionLlm.extract_slots_from_document]]
+**호출하는 것** [[#SessionStore.get]] · [[#AttachmentsService.save_bytes]] · [[#PiiMasker.mask_pii]] · [[#SessionLlm.classify_document]] · [[#SessionLlm.extract_slots_from_document]] · [[#SessionService.seed_slots]]
 
 **테스트 관점**
-- 뽑은 항목은 응답에만 있고, 세션의 대화 정보는 그대로다
+- 뽑은 항목이 세션의 대화 정보에 들어가고, 세션 조회에 보인다
+- 저신뢰 OCR(0.6 미만)과 형식이 틀린 값(예: 입원 일수가 글자)은 대화 정보에 들어가지 않고 응답에만 남는다
 - IE가 실패해도 모델 추출로 항목이 나온다
 - 분류 중 연결 오류가 3번 이어지면 500이 된다. 파일은 이미 저장돼 있다(3장)
 
