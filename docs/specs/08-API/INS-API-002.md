@@ -301,14 +301,14 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 #### POST/api/v1/sessions/{session_id}/documents 서류 사진 올리기
 
-화면 [[INS-UI-003#UI-6]] · 유스케이스 [[INS-UC-002#UC-H6]] · 서비스 없음 — 라우터가 OCR·정보 추출 어댑터, 모델 분류·추출, 첨부 저장, 세션 저장소를 직접 부른다
+화면 [[INS-UI-003#UI-6]] · 유스케이스 [[INS-UC-002#UC-H6]] · 서비스 `sessions.service.seed_slots`(병합만) — 라우터가 OCR·정보 추출 어댑터, 모델 분류·추출, 첨부 저장, 세션 저장소를 직접 부른다
 
-서류 종류를 가리고 항목을 뽑아 돌려준다. 분류·추출의 모델 오류(`LLMError`)는 빈 항목으로 200을 돌려주지만, 감싸지 않은 연결 오류는 500이 된다(5장). 뽑은 항목은 응답으로만 돌아가고 대화 정보에는 들어가지 않는다. 첨부는 24시간 뒤 지운다.
+서류 종류를 가리고 항목을 뽑아 세션 대화 정보에 모델 없이 병합한다(`applied`). OCR 신뢰도가 0.6 미만이거나 값이 대화 정보 형식에 맞지 않으면 병합하지 않고 응답으로만 돌려준다. 분류·추출의 모델 오류(`LLMError`)는 빈 항목으로 200을 돌려주지만, 감싸지 않은 연결 오류는 500이 된다(5장). 첨부는 24시간 뒤 지운다.
 
 ```yaml
 /api/v1/sessions/{session_id}/documents:
   post:
-    summary: 서류 사진을 올려 항목을 뽑는다
+    summary: 서류 사진을 올려 항목을 뽑고 대화 정보에 채운다
     parameters:
       - {name: session_id, in: path, required: true, schema: {type: string}}
     requestBody:
@@ -334,6 +334,9 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
                 extracted_slots: {type: object}
                 ocr_confidence: {type: number}
                 low_confidence: {type: boolean, description: 신뢰도 0.6 미만이면 참 — 다시 찍기 안내}
+                applied: {type: boolean, description: 대화 정보에 병합했는지. 저신뢰·형식 불일치면 거짓}
+                slots: {$ref: '#/components/schemas/SlotState', description: 병합 뒤 대화 정보. applied가 거짓이면 null}
+                missing: {type: array, items: {type: string}, description: 병합 뒤 아직 빠진 칸}
       '400': {description: INVALID_FILE · FILE_READ_ERROR}
       '404': {description: SESSION_NOT_FOUND}
       '500': {description: STORAGE_ERROR · INTERNAL_ERROR(분류·추출의 연결 오류)}
@@ -769,9 +772,7 @@ components:
 - [ ] **서비스 없는 라우터** — 서류 업로드·시연 로그인·가입 보험·진료내역은 라우터가 어댑터·DB를 직접 부른다. router → service → crud 규칙에 맞게 서비스로 옮길지
 - [ ] **진료내역 라우터 위치** — 도메인 폴더가 아니라 `app/infrastructure/external/health_data/`에 있다
 - [ ] **빈 라우터** — chunks·search 라우터가 경로 없이 등록돼 있다
-- [ ] **PDF 업로드** — 화면은 PDF를 보내는데 서버는 `INVALID_FILE`로 거절한다 ([[INS-UI-003#UI-6]])
 - [ ] **관리자 화면의 직접 호출** — 관리자 그래프 화면이 API 클라이언트 모듈을 거치지 않고 fetch를 직접 쓴다
 - [ ] **마이데이터 실연동 에러** — 실연동 설정이 없을 때 나는 예외를 라우터가 받지 않아 500이 된다. 진료내역처럼 503 코드로 바꿀지 ([[#GET/api/v1/auth/me/insurances]])
 - [ ] **서류 분류의 연결 오류** — 분류·추출 모델 호출의 연결 오류는 `LLMError`로 감싸지 않아 500이 된다. 그때 파일은 이미 저장돼 있다 ([[#POST/api/v1/sessions/{session_id}/documents]])
-- [ ] **서류 항목** — 업로드가 뽑은 항목은 응답으로만 돌아가고 대화 정보에 들어가지 않는다 ([[INS-UC-002#UC-H6]])
 - [ ] **가입 보험의 실손 한정** — 이 엔드포인트가 실손만 돌려줘서, 가입 현황에 실손이 아닌 보험을 보여 줄 수 없다 ([[INS-PRD-002#R16]])
