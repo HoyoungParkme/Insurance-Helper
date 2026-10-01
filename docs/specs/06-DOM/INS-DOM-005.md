@@ -1569,7 +1569,7 @@ classDiagram
 
 규칙
 
-- `process_pdf`는 파싱(`parser`) → 구조 인식(`structure`, 조·항·호·별표 경계) → 자르기(`chunker`, 1,000토큰을 넘으면 문단 단위로 나누고, 임베딩 입력 상한 3,500토큰을 넘지 않게 한다) 순서다. 머리말·꼬리말은 파싱 때 뺀다
+- `process_pdf`는 파싱(`parser`) → 구조 인식(`structure`, 조·항·호·별표 경계) → 자르기(`chunker`, 1,000토큰을 넘으면 항 단위로 나누고, 임베딩 입력 상한 3,500토큰을 넘지 않게 한다) 순서다. 머리말·꼬리말은 파싱 때 뺀다
 - 파서는 `TERMS_PARSER`로 고른다. 기본은 Upstage Document Parse(`upstage`)이고 PyMuPDF(`pymupdf`)는 폴백이다
 - 청크 교체는 문서 단위로 지우고 다시 넣는다
 
