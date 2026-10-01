@@ -10,7 +10,7 @@ upstream: [INS-DOM-004, INS-API-002, INS-UC-002, INS-INFRA-002, INS-UI-003]
 
 > 1. 서버는 도메인 12개(`app/domains/*`), 설정과 외부 연동(`app/infrastructure`), 공용(`app/shared`), 운영 명령(`app/interfaces/cli`)으로 나뉜다. 서비스는 클래스가 아니라 모듈 함수다. 그래서 이 문서는 모듈 하나를 설계 클래스 하나로 그렸다.
 > 2. 테이블이 있는 엔티티는 7개다(보험사·상품·상품 버전·약관 문서·약관 청크·사용자·감사 기록). 대화 세션은 테이블 없이 서버 메모리에만 있다.
-> 3. 코드를 대조하다 찾은 것은 미결사항에 적었다. 서류 사진에서 뽑은 항목이 대화 정보에 들어가지 않는다. 판정 입력 중 계약 기간·급여/비급여 금액은 채우는 곳이 없어, 보장기간 규칙과 자기부담 계산이 대화에서는 돌지 않는다. 판정·설명 답의 LLM 호출은 재시도 장식자가 엉뚱한 함수에 붙어 SDK 재시도만 받는다. 서비스 없는 라우터와 crud 없는 도메인도 있다.
+> 3. 코드를 대조하다 찾은 것은 미결사항에 적었다. 판정 입력 중 계약 기간·급여/비급여 금액은 채우는 곳이 없어, 보장기간 규칙과 자기부담 계산이 대화에서는 돌지 않는다. 판정·설명 답의 LLM 호출은 재시도 장식자가 엉뚱한 함수에 붙어 SDK 재시도만 받는다. 서비스 없는 라우터와 crud 없는 도메인도 있다.
 
 ## 0. 이 문서가 다루는 것
 
@@ -959,7 +959,7 @@ flowchart LR
 
 | 호출 | 파일 | 무엇이 다른가 |
 |---|---|---|
-| 서류 업로드 라우터 → [[#SessionStore]] · [[#OcrAdapter]] · [[#SessionLlm]] · 개인정보 가림 | `app/domains/attachments/router.py` | 저장 → 문자 인식 → 가림 → 분류 → 항목 추출 절차가 서비스가 아니라 라우터에 있다. 세션 서비스를 건너뛰고 저장소를 직접 연다 |
+| 서류 업로드 라우터 → [[#SessionStore]] · [[#OcrAdapter]] · [[#SessionLlm]] · 개인정보 가림 | `app/domains/attachments/router.py` | 저장 → 문자 인식 → 가림 → 분류 → 항목 추출 → 대화 정보 병합 절차가 서비스가 아니라 라우터에 있다. 세션 확인은 저장소를 직접 열고, 병합만 세션 서비스를 부른다 |
 | 인증 라우터 → `session_scope` · [[#DemoPersonaRegistry]] · [[#MydataAdapter]] | `app/domains/auth/router.py` | 서비스가 없다. 트랜잭션 경계(`session_scope`)가 라우터에 있다 |
 | 진료내역 라우터 → [[#HealthDataAdapter]] | `app/infrastructure/external/health_data/router.py` | 라우터가 도메인 밖에 있고 어댑터를 직접 부른다 |
 | [[#UsersService]] · [[#DemoPersonaRegistry]] → DB | `app/domains/users/service.py` · `app/domains/auth/personas.py` | crud 없이 서비스가 쿼리를 쓴다 |
@@ -1098,7 +1098,7 @@ classDiagram
 |---|---|---|---|
 | `create_session(initial_message, user_id) -> tuple[Session, Optional[SessionResponse]]` | [[INS-API-002#POST/api/v1/sessions]] · `ica chat` | [[INS-UC-002#UC-H1]] | `LLMError`·`SchemaViolationError` → `LLM_UNAVAILABLE` |
 | `post_message(session_id, text, user_id, on_delta) -> SessionResponse` | [[INS-API-002#POST/api/v1/sessions/{session_id}/messages/stream]] · [[INS-API-002#POST/api/v1/sessions/{session_id}/messages]] · `ica chat` | [[INS-UC-002#UC-H1]] · [[INS-UC-002#UC-H3]] · [[INS-UC-002#UC-H5]] · [[INS-UC-002#UC-S1]] | `SessionNotFoundError` → `SESSION_NOT_FOUND` · `LLMError`·`SchemaViolationError` → `LLM_UNAVAILABLE` · 그 밖의 예외 → `INTERNAL`(스트림만) |
-| `seed_slots(session_id, updates) -> SlotSeedResponse` | [[INS-API-002#POST/api/v1/sessions/{session_id}/slots]] | [[INS-UC-002#UC-H4]] · [[INS-UC-002#UC-S7]] | `SessionNotFoundError` → `SESSION_NOT_FOUND` |
+| `seed_slots(session_id, updates) -> SlotSeedResponse` | [[INS-API-002#POST/api/v1/sessions/{session_id}/slots]] · 서류 업로드 라우터([[INS-API-002#POST/api/v1/sessions/{session_id}/documents]]) | [[INS-UC-002#UC-H4]] · [[INS-UC-002#UC-S7]] | `SessionNotFoundError` → `SESSION_NOT_FOUND` |
 | `get_session(session_id) -> Session` | [[INS-API-002#GET/api/v1/sessions/{session_id}]] · [[INS-API-002#GET/api/v1/sessions/{session_id}/summary]] · [[INS-API-002#GET/api/v1/sessions/{session_id}/checklist]] · [[INS-API-002#POST/api/v1/sessions/{session_id}/submit]] | [[INS-UC-002#UC-H7]] | `SessionNotFoundError` → `SESSION_NOT_FOUND` |
 | `close_session(session_id) -> bool` | [[INS-API-002#DELETE/api/v1/sessions/{session_id}]] | [[INS-UC-002#UC-S9]] | 없음. 없는 세션도 204다 |
 | `answer_help(text) -> HelpAnswer` | [[INS-API-002#POST/api/v1/sessions/help]] | [[INS-UC-002#UC-H8]] | `LLMError` → `LLM_UNAVAILABLE`. 검색 실패는 삼키고 근거 없이 답한다 |
@@ -1109,7 +1109,7 @@ classDiagram
 - 되묻기는 한 번까지다. 이미 한 번 되물었거나, 모른다고 한 칸이 둘 이상이거나, 지금 답해 달라고 하거나, ⑥의 판정이 면책·조건부면 빠진 사실이 있어도 부분 판정(`confidence=partial`)으로 간다
 - 모든 분기가 응답을 돌려주기 전에 감사 기록을 마친다([[#AuditService]]). 예외가 나면 실패로 남기고 다시 던진다
 - `RAG_REACT`를 켜면 ⑨를 LangGraph 에이전트가 맡는다(기본 꺼짐). 에이전트가 실패하면 단순 검색으로 돌아간다
-- `seed_slots`는 LLM을 거치지 않는다. 가입 현황에서 고른 보험(`policies`·보험사 코드·증권 번호 등)을 대화 정보에 그대로 합친다
+- `seed_slots`는 LLM을 거치지 않는다. 가입 현황에서 고른 보험(`policies`·보험사 코드·증권 번호 등)과 서류에서 뽑은 항목을 대화 정보에 그대로 합친다
 
 #### SessionStore 세션 저장소
 
@@ -1746,10 +1746,10 @@ classDiagram
 
 규칙
 
-- JPEG·PNG·WebP, 10MB까지 받는다. PDF는 받지 않는데 화면은 PDF를 보낸다([[INS-UI-003#UI-6]], 5장)
-- 업로드 절차(라우터에 있다): 문자 인식 → 개인정보 가림 → 서류 분류 → 항목 추출. 항목 추출은 IE를 먼저 쓰고, 실패하면 LLM 추출로 넘어간다
+- JPEG·PNG·WebP, 10MB까지 받는다. 화면의 첨부 선택 창도 이 셋만 고르게 한다([[INS-UI-003#UI-6]])
+- 업로드 절차(라우터에 있다): 문자 인식 → 개인정보 가림 → 서류 분류 → 항목 추출 → 대화 정보 병합. 항목 추출은 IE를 먼저 쓰고, 실패하면 LLM 추출로 넘어간다
 - 분류·추출이 모델 오류(`LLMError`)로 실패하면 빈 항목으로 성공을 돌려준다. 연결 오류는 감싸지 않아 500이 되고, 그때 파일은 이미 저장돼 있다(5장)
-- 뽑은 항목은 응답으로만 돌려준다. 서버의 대화 정보에도 대화 기록에도 넣지 않는다. 화면은 항목을 어시스턴트 메시지로 보여 주고 확인을 받지만, 그 메시지는 화면에만 있어 다음 턴의 사실 추출이 보지 못한다. 그래서 [[INS-UC-002#UC-H6]] 3단계(대화 정보에 채운다)가 지금은 일어나지 않는다(5장)
+- 뽑은 항목은 [[#SessionService]]의 `seed_slots`로 세션 대화 정보에 모델 없이 병합한다([[INS-UC-002#UC-H6]] 3단계). OCR 신뢰도가 0.6 미만이거나 값이 대화 정보 검증을 못 넘으면 병합하지 않고 응답으로만 돌려준다(`applied`가 거짓). 화면은 채워진 항목을 어시스턴트 메시지로 보여 주고, 틀린 것만 말로 고치게 한다
 
 #### OcrAdapter 서류 인식 어댑터
 
@@ -1925,11 +1925,10 @@ classDiagram
 - 함수 하나가 `/api/v1` 아래 엔드포인트 하나를 맡는다. 예를 들어 `createSession`은 `POST /sessions`, `streamMessage`는 `POST /sessions/{id}/messages/stream`이다
 - 공통 요청 함수 `api()`는 `{"detail": {"error": {…}}}`와 `{"error": {…}}` 두 모양을 읽는다. 인증·진료내역 라우터의 `{"detail": {code, message}}` 모양은 읽지 못해 `UNKNOWN`이 된다. 서류 업로드만 이 모양을 읽는 자체 파서를 쓴다
 - 세션 id는 `useSession`이 `sessionStorage`에 두고, 새로 고침 뒤 `getSessionState`로 복원한다
-- 서류 업로드 응답의 뽑은 항목은 화면에 메시지로만 보이고 서버로 다시 보내지 않는다([[#AttachmentsService]], 5장)
+- 서류 업로드 응답은 서버가 이미 병합한 항목(`applied`)을 알려 주고, 화면은 그것을 메시지로 보여 준다. 서버로 다시 보내지 않는다([[#AttachmentsService]])
 
 ## 5. 미결사항
 
-- [ ] **서류 항목이 대화 정보에 안 들어간다** — 서류 업로드가 뽑은 항목을 응답으로만 돌려주고, 화면도 메시지로 보여 주기만 한다. 서버의 대화 정보와 대화 기록에 들어가지 않아 판정에 쓰이지 않는다([[#AttachmentsService]]). [[INS-UC-002#UC-H6]]과 [[INS-UI-003#UI-6]]은 채워지는 것을 목표로 두고, 지금 동작을 미결로 적었다. 화면이 `seedSlots`로 넣게 할지, 업로드 라우터가 세션에 합치게 할지 정한다
 - [ ] **`ica search`가 Chroma를 본다** — 이 명령은 설정과 상관없이 search 도메인의 Chroma 함수를 부른다. 운영 저장소가 pgvector라 결과가 비거나 낡는다. [[#RagService]]로 바꿀지
 - [ ] **서버 폴더 위치** — 기본형은 `backend/app/`인데 루트 `app/`이다(1.1). 옮기면 Dockerfile·CI·`ica` 진입점·테스트 경로가 함께 바뀐다. 옮길지
 - [ ] **서비스 없는 라우터** — 서류 업로드·인증·진료내역 라우터가 저장소·어댑터·DB를 직접 부른다(3.2). 서류 업로드 절차를 `AttachmentsService`로, 시연 로그인·가입 보험을 auth 서비스로 옮길지
