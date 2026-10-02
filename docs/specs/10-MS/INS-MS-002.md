@@ -10,7 +10,7 @@ upstream: [INS-SEQ-002, INS-DOM-005, INS-API-002, INS-UC-002]
 
 > 1. 판정 파이프라인을 중심으로 함수 49개를 적었다. 한 턴 처리·판정 엔진·검색·답 생성·원본 캡처·서류 업로드·적재는 자세히, 나머지는 간략형(시그니처·처리·테스트)으로 적었다.
 > 2. 항목 이름은 클래스 명세의 설계 클래스에 함수 이름을 붙였다(예: `SessionService.post_message`). 「호출하는 것」은 코드에서 뽑은 호출 관계를 따른다.
-> 3. 함수를 읽다 찾은 것을 미결사항에 적었다. 구조화 LLM 호출에 재시도가 걸려 있지 않은 것, 서류 분류의 연결 오류가 500이 되는 것, 선택 서류가 없는 것, 임베딩 실패 뒤 건너뛰기다.
+> 3. 함수를 읽다 찾은 것을 미결사항에 적었다. 구조화 LLM 호출에 재시도가 걸려 있지 않은 것, 서류 분류의 연결 오류가 500이 되는 것, 선택 서류가 없는 것, 임베딩 실패 뒤 건너뛰기, 긴 발화에서 진단명을 놓치는 것이다.
 
 ## 0. 이 문서가 다루는 것
 
@@ -115,7 +115,7 @@ def post_message(session_id: str, text: str, *, user_id: int | None = None, on_d
 7. `CoverageEngine.evaluate(CoverageEngine.build_facts_from_slots(slots))`
 8. `if 빠진 사실이 있고 부분 판정이 아니다 → SessionLlm.next_question으로 되묻기` — 부분 판정은 판정이 면책·조건부, 모름 칸 2개 이상, 되묻기 1번 이상, 즉답 요청 가운데 하나다
 9. 설명 답 경로: `RagService.retrieve_freeform(질의, 8, 보험사 코드)` · `if 비었고 보험사 코드가 있다 → 필터 없이 다시` · `if 그래도 비었다 → 되묻기 · else → SessionLlm.generate_explanation`
-10. `if 판정 대상 보험이 2개 이상 → 보험마다 대화 정보를 복사해 RagService.retrieve · CoverageEngine.evaluate · SessionLlm.generate_assessment(실패한 보험은 건너뜀) → if 판정이 2건 이상 → ProrationCalculator.compute로 비교 답 · else → 11로`
+10. `if 판정 대상 보험이 2개 이상 → 보험마다 대화 정보를 복사해 그 보험의 보험사·세대·계약 기간을 얹고 RagService.retrieve · CoverageEngine.evaluate · SessionLlm.generate_assessment(실패한 보험은 건너뜀) → if 판정이 2건 이상 → ProrationCalculator.compute로 비교 답 · else → 11로`
 11. `if RAG_REACT → run_agent(실패하면 검색으로) · else → RagService.retrieve(slots, 8)` · `if 청크 없음 → 되묻기 · else → SessionLlm.generate_assessment(slots, 청크, coverage, 메모, on_delta)` → 마지막 판정으로 저장
 12. 모든 응답 전에 상태를 바꾸고(`SessionStore.touch`) `AuditService.complete` · `if 예외 → AuditService.fail(PiiMasker.mask_pii(에러)) 뒤 다시 던진다`
 
@@ -134,6 +134,7 @@ def post_message(session_id: str, text: str, *, user_id: int | None = None, on_d
 - 되묻기를 한 번 한 뒤에는 빠진 사실이 있어도 판정 답이 나온다
 - 판정이 면책이면 첫 턴에 되묻지 않는다
 - 보험 둘을 미리 채우면 비교 답이 나오고, 하나가 검색에서 비면 단일 판정으로 돌아간다
+- 보험 둘의 계약 시작일이 사고일 앞뒤로 갈리면, 사고 뒤에 가입한 보험만 면책이다
 - 어느 분기든 감사 기록이 한 행 남는다(성공은 `complete`, 예외는 `fail`)
 - 인사만 보내면 LLM을 부르지 않는다
 
@@ -150,8 +151,8 @@ def seed_slots(session_id: str, updates: dict[str, Any]) -> SlotSeedResponse
 
 **처리**
 1. `SessionStore.get` · `if 없음 → SessionNotFoundError`
-2. `if policies가 있다 → 세션의 판정 대상 보험으로 두고, 첫 보험의 보험사 코드·이름·상품·증권 번호·세대를 채울 값 앞에 둔다(직접 준 값이 이긴다)`
-3. 대화 정보에 있는 칸이고 비어 있지 않은 값만 남겨 합친다
+2. `if policies가 있다 → 세션의 판정 대상 보험으로 두고, 첫 보험의 보험사 코드·이름·상품·증권 번호·세대와 계약 시작일·만료일(보험의 `valid_from`·`valid_to`)을 채울 값 앞에 둔다(직접 준 값이 이긴다)`
+3. 대화 정보에 있는 칸이고 비어 있지 않은 값만 남겨 합친다. 날짜는 ISO 문자열로 와도 날짜로 바뀐다
 4. 상태를 `gathering`으로 바꾸고 대화 정보와 빠진 칸을 돌려준다
 
 **출력** `SlotSeedResponse`
@@ -164,7 +165,7 @@ def seed_slots(session_id: str, updates: dict[str, Any]) -> SlotSeedResponse
 
 **호출하는 것** [[#SessionStore.get]]
 
-**테스트 관점** LLM을 부르지 않는다. 모르는 칸과 빈 값은 버린다. 첫 보험이 대표가 된다
+**테스트 관점** LLM을 부르지 않는다. 모르는 칸과 빈 값은 버린다. 첫 보험이 대표가 된다. 첫 보험의 계약일이 대화 정보의 계약 시작일이 되고, 만기일이 없으면(무기한) 만료일은 비어 있다
 
 근거: [[INS-SEQ-002#SEQ-1]] · [[INS-API-002#POST/api/v1/sessions/{session_id}/slots]]
 
@@ -228,12 +229,15 @@ def extract_slots(history: list[Message], user_msg: str, current_slots: SlotStat
 **입력** 이전 대화, 이번 입력, 지금의 대화 정보
 
 **처리**
-1. 오늘 날짜와 지금의 대화 정보를 넣은 시스템 프롬프트로 도구 호출을 한다(temperature 0)
+1. 오늘 날짜와 지금의 대화 정보를 넣은 시스템 프롬프트로 도구 호출을 한다(temperature 0). 프롬프트는 증상을 진단명으로("발목이 부러졌어요" → 발목 골절), "N일 입원"을 입원 일수로, 만 원 단위를 원으로 바꾸게 하고, 급여·비급여 금액과 계약 시작·만료일 칸도 뽑게 하며, 언급하지 않은 칸을 모름으로 두지 말라고 한다
 2. `if slot_updates가 dict가 아니다 → SchemaViolationError`
 3. 대화 정보에 있는 칸만 남긴다
-4. `if unknown_slots가 있다 → 기존 모름 칸과 합친다`
-5. `if session_notes가 있다 → 하나씩 60자로 잘라 _notes로 붙인다`
-6. `if wants_immediate_answer → _wants_immediate_answer 표시`
+4. 모델이 비운 금액·치료량 칸을 입력 문장에서 그대로 읽어 채운다 — 이름이 붙은 금액(급여·비급여·병원비·진료비·치료비·의료비·총액·환자 부담금 + 숫자 + 만·천·억 원 → 원 단위 정수), "N일 입원" → 입원 일수, "통원·외래 N번·회" → 통원 횟수. 모델이 채운 값은 덮지 않는다
+5. `if unknown_slots가 있다 → if 입력에 모른다는 말(모름·몰라·모르겠·잘 모르·기억이 안·기억 못)이 없다 → 버린다 · else → 기존 모름 칸과 합친다`
+6. `if session_notes가 있다 → 하나씩 60자로 잘라 _notes로 붙인다`
+7. `if wants_immediate_answer → _wants_immediate_answer 표시`
+
+4·5는 10/2에 긴 발화에서 모델이 입원 일수·금액을 빼고, 말하지 않은 칸 12개를 모름으로 표시한 것을 보고 더했다. 사용자가 글자 그대로 말한 것만 읽고 추론하지 않는다
 
 **출력** 합칠 값(dict). `_notes`·`_wants_immediate_answer`는 부르는 쪽이 떼어 쓴다
 
@@ -244,7 +248,11 @@ def extract_slots(history: list[Message], user_msg: str, current_slots: SlotStat
 | 도구 호출 실패 | `LLMError` |
 | 응답 형식이 틀렸다 | `SchemaViolationError` — 다시 요청하지 않는다 |
 
-**테스트 관점** 없는 칸 이름은 버린다. "모르겠어요"는 모름 칸이 된다. 메모는 60자에서 잘린다
+**테스트 관점**
+- 없는 칸 이름은 버린다. "모르겠어요"는 모름 칸이 된다. 메모는 60자에서 잘린다
+- 모른다는 말이 없는 입력에서 모델이 모름으로 표시한 칸은 버린다
+- "급여 30만원, 비급여 50만원"은 모델이 놓쳐도 300,000·500,000이 된다. "환자 부담금은 32,000원"(진료내역을 고르면 화면이 보내는 문장)은 청구 금액 32,000이 된다
+- 이름 없는 숫자("30만원 정도 썼어요")와 날짜 숫자는 읽지 않는다. 모델이 뽑은 값은 덮지 않는다
 
 근거: [[INS-SEQ-002#SEQ-C1]] · [[INS-UC-002#UC-S1]]
 
@@ -375,11 +383,15 @@ def extract_slots_from_document(text: str, doc_type: str) -> dict[str, Any]
 ```
 
 **처리**
-1. 서류 종류별로 뽑을 칸을 정한다 · `if 모르는 종류이거나 글자가 비었다 → 빈 결과`
-2. 글자 앞 3,000자로 도구 호출을 한다(temperature 0). 영수증이면 청구 금액 규칙을 더한다
-3. 빈 값을 버리고 돌려준다
+1. 서류 종류별로 뽑을 칸을 정한다(영수증은 급여·비급여 합계까지, 청구서는 보험기간까지) · `if 모르는 종류이거나 글자가 비었다 → 빈 결과`
+2. 글자 앞 3,000자로 도구 호출을 한다(temperature 0). 금액·일수 칸은 정수로 선언한다. 영수증이면 청구 금액 규칙과, 급여·비급여 열이 있으면 두 합계를 뽑으라는 규칙을 더한다
+3. 빈 값을 버린다. 금액·일수 칸은 문자열로 와도 숫자만 남겨 정수로 바꾸고, 숫자가 없으면 버린다
 
-**테스트 관점** 영수증은 가장 큰 금액 하나를 청구 금액으로 뽑는다. 연결 오류는 `LLMError`로 감싸지 않고 올라간다(3장)
+**테스트 관점**
+- 영수증은 가장 큰 금액 하나를 청구 금액으로 뽑는다
+- 금액·일수는 "1,317,400원"·"5"로 와도 정수가 된다
+- 연결 오류는 `LLMError`로 감싸지 않고 올라간다(3장)
+- 10/2 합성 영수증 글자로 돌렸을 때 금액 칸이 모두 비었다. 업로드는 Upstage IE를 먼저 쓰므로 이 함수는 IE가 실패했거나 IE 스키마가 없는 종류일 때만 탄다
 
 근거: [[INS-SEQ-002#SEQ-6]] · [[INS-UC-002#UC-S8]]
 
@@ -412,9 +424,9 @@ def build_facts_from_slots(slots: SlotState, *, generation: int | None = None, p
 **처리**
 1. 치료 유형: `if 입원 일수 > 0 → 입원 · if 통원 횟수 > 0 → 통원 · else → None`
 2. 목적: `if 비었거나 모르는 값 → 치료 · else → 그 값`
-3. 청구 금액은 `charged_amount`로, 네 가지 정황(해외·한방·치과 질병·다른 보험 처리분)은 그대로 옮긴다. 세대·목적은 인자로 덮어쓸 수 있다
+3. 청구 금액은 `charged_amount`로 옮긴다. 급여·비급여 금액, 계약 시작·만료일, 네 가지 정황(해외·한방·치과 질병·다른 보험 처리분)은 그대로 옮긴다. 세대·목적은 인자로 덮어쓸 수 있다
 
-**테스트 관점** 급여·비급여 금액과 계약 기간은 채우지 않는다([[INS-DOM-005]] 5장)
+**테스트 관점** 급여·비급여 금액과 계약 시작·만료일이 그대로 청구 사실로 간다. 만료일이 없으면(무기한) 비어 있는 채로 간다
 
 근거: [[INS-SEQ-002#SEQ-C1]]
 
@@ -429,10 +441,10 @@ def evaluate(facts: ClaimFacts) -> CoverageAssessment
 
 **처리**
 1. `CoverageEngine.rules_for(facts)`로 적용할 규칙을 우선순위 순으로 고른다
-2. `if 보장기간 규칙이 맞는다 → excluded`
+2. `if 보장기간 규칙이 맞는다(사고일이 계약 시작일 전이거나, 만료일이 있고 그 뒤다) → excluded`
 3. `if 면책 규칙이 맞는다 → excluded`
 4. `if 부분 보상 규칙이 맞는다 → conditional`
-5. `if 보장 근거 규칙이 맞는다 → covered` · 자기부담을 계산한다(`CoverageEngine.compute_deductible`) · `if 계산하지 못했다 → missing에 benefit_split` · `if 계약 기간이 없다 → 이유 문장을 더한다`
+5. `if 보장 근거 규칙이 맞는다 → covered` · 자기부담을 계산한다(`CoverageEngine.compute_deductible`) · `if 계산하지 못했다 → missing에 benefit_split` · `if 계약 시작일이 없다 → 이유 문장을 더한다`
 6. `if 치료 유형을 모른다 → insufficient_info`
 7. `else → conditional`(특약·한도 확인 필요)
 8. 세대를 몰랐으면 `needs_generation`을 켠다
@@ -446,6 +458,8 @@ def evaluate(facts: ClaimFacts) -> CoverageAssessment
 **테스트 관점**
 - 규칙 11개가 저마다 한 번씩 맞는 사실 조합에서 기대 결과가 나온다
 - 면책과 부분 보상이 같이 맞으면 면책이 이긴다
+- 사고일이 계약 시작일 전이면 만료일이 없어도(무기한 계약) `excluded`다. 사고일이 만료일 뒤여도 `excluded`다
+- 급여·비급여 금액이 있으면 `covered`에 자기부담 계산이 붙고 `benefit_split`이 빠진다
 - 치료 유형이 없으면 `insufficient_info`다
 - LLM도 DB도 부르지 않는다
 
@@ -514,7 +528,8 @@ def compute(items: list[tuple[str, int | None, CoverageAssessment]]) -> Proratio
 **예외** 없음
 
 **테스트 관점**
-- 지급 추정액이 없으면 안분액이 모두 비어 있다(지금 대화 흐름이 그렇다)
+- 지급 추정액이 없으면(급여·비급여 금액을 말하지 않았고 영수증도 없으면) 안분액이 모두 비어 있다
+- 4세대·3세대 실손에 급여 300,000·비급여 500,000이면 지급 추정 590,000·670,000, 안분액 313,730·356,270이고, 안분액 합은 큰 쪽 추정액 670,000과 같다
 - 추천은 금액이 없어도 나온다
 - 세대를 모르는 보험은 4세대 비율로 본다
 
@@ -822,7 +837,7 @@ def upload_document(session_id: str, file: UploadFile = File(...), current_user:
 4. OCR로 글자를 뽑는다(`OcrAdapter.extract_text`) · `if 설정 없음 → 503 OCR_NOT_CONFIGURED · if 호출 실패 → 502 OCR_FAILED`
 5. 글자를 가린다(`PiiMasker.mask_pii`)
 6. `SessionLlm.classify_document(가린 글자)`
-7. `if IE 스키마가 있는 종류 → Upstage IE로 원본 이미지에서 항목을 뽑는다 · if 실패 → 다음으로`
+7. `if IE 스키마가 있는 종류 → Upstage IE로 원본 이미지에서 항목을 뽑는다(영수증은 급여·비급여 합계, 청구서는 보험기간까지. 금액은 숫자만 남겨 정수로 바꾸고 숫자가 없으면 버린다) · if 실패 → 다음으로`
 8. `if 뽑은 항목이 없다 → SessionLlm.extract_slots_from_document(가린 글자, 종류)`
 9. `if 6~8에서 LLMError → 빈 분류·빈 항목으로 둔다`
 10. `if 뽑은 항목이 있고 OCR 신뢰도가 0.6 이상 → SessionService.seed_slots(세션 id, 항목)로 대화 정보에 병합(모델 없음)` · `if 값이 SlotState 검증을 못 넘는다 → 병합하지 않고 경고만` · 저신뢰면 병합하지 않는다
@@ -845,6 +860,7 @@ def upload_document(session_id: str, file: UploadFile = File(...), current_user:
 **테스트 관점**
 - 뽑은 항목이 세션의 대화 정보에 들어가고, 세션 조회에 보인다
 - 저신뢰 OCR(0.6 미만)과 형식이 틀린 값(예: 입원 일수가 글자)은 대화 정보에 들어가지 않고 응답에만 남는다
+- 영수증 IE가 급여·비급여 합계를 주면 대화 정보의 급여·비급여 금액이 채워진다(10/2 `receipt__clean.png`: 청구 154,000 = 급여 84,000 + 비급여 70,000)
 - IE가 실패해도 모델 추출로 항목이 나온다
 - 분류 중 연결 오류가 3번 이어지면 500이 된다. 파일은 이미 저장돼 있다(3장)
 
@@ -1024,10 +1040,12 @@ def fetch_insurances(self, user_external_id: str) -> list[InsuranceDict]
 
 **처리**
 1. `if MYDATA_BACKEND = real → 실연동` · `else → 더미`
-2. 더미: `data/demo/mydata.json`에서 외부 키의 레코드를 그대로 돌려준다(세대가 이미 들어 있다)
-3. 실연동: `if 주소나 토큰이 없다 → MydataNotConfiguredError` · 표준 API로 목록과 기본 정보를 읽고, 가입일로 세대를 정하며, 실손이 아니거나 정상 계약이 아니면 뺀다
+2. 더미: `data/demo/mydata.json`에서 외부 키의 레코드를 그대로 돌려준다(세대·계약일·만기일이 이미 들어 있다. 만기일은 대부분 비어 있어 무기한이다)
+3. 실연동: `if 주소나 토큰이 없다 → MydataNotConfiguredError` · 표준 API로 목록과 기본 정보를 읽고, 가입일로 세대를 정하고, 계약일·만기일을 계약 기간(`valid_from`·`valid_to`)으로 옮기며(만기일이 9999로 시작하면 무기한), 실손이 아니거나 정상 계약이 아니면 뺀다
 
-**테스트 관점** 더미에는 실손만 들어 있다. 외부 키가 없으면 빈 목록이다
+**테스트 관점**
+- 더미에는 실손만 들어 있다. 외부 키가 없으면 빈 목록이다
+- 계약 기간이 판정 대상 보험을 거쳐 판정까지 이어진다. 경계 페르소나 p13(만기 2025-08-01, 진료 2025-10-12)·p14(가입 2025-05-01, 진료 2024-11-20)는 진료내역 문장으로 물으면 보장기간 면책으로 '낮음'이 나온다(10/2 확인. E2 전에는 계약 기간이 판정에 오지 않아 둘 다 보장으로 판정됐다)
 
 근거: [[INS-SEQ-002#SEQ-4]] · [[INS-UC-002#UC-S7]]
 
@@ -1123,3 +1141,4 @@ def fetch_graph(insurer_id: str | None = None, scope: str | None = None) -> dict
 - [ ] **서류 분류의 연결 오류가 500이 된다** — [[#SessionLlm.classify_document]]·[[#SessionLlm.extract_slots_from_document]]는 SDK 예외를 `LLMError`로 감싸지 않는다. 업로드 라우터는 `LLMError`만 받으므로 연결 오류가 3번 이어지면 500이 되고, 파일은 이미 저장돼 있다. 감쌀지
 - [ ] **선택 서류가 없다** — [[#ClaimsService.build_checklist]]의 서류가 모두 필수다. 화면의 "선택" 표시가 나올 일이 없다
 - [ ] **임베딩 실패 뒤 건너뛰기** — [[#IngestionService.run_ingest]]는 청크를 커밋한 뒤 임베딩한다. 임베딩이 실패하면 다음 적재가 해시 때문에 그 문서를 건너뛰고, [[#VectorStoreAdapter.query]]는 임베딩 없는 청크를 보지 않는다([[INS-SEQ-002]] 3장과 같은 항목)
+- [ ] **긴 발화의 진단명 누락** — [[#SessionLlm.extract_slots]]는 긴 발화에서 진단명을 가끔 놓친다(10/2 "…발목이 부러졌어요. 3일 입원했고… 급여 30만원…"). 금액·치료량은 문장에서 결정론으로 보태지만, 진단명은 증상을 병명으로 바꿔야 해서 규칙으로 읽지 않았다. 지금은 판정 요약과 되묻기가 메운다. 프롬프트를 더 손볼지, 진단명만 한 번 더 물을지
