@@ -14,7 +14,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 ## 0. 이 문서가 다루는 것
 
-- 기준은 실행 중인 앱의 OpenAPI 스키마(`app.openapi()`)다. 여기에 경로 26개, 작업 27개가 나온다. 스키마에서 빠진 `/metrics`와 정적 파일 경로 둘을 더했다
+- 기준은 실행 중인 앱의 OpenAPI 스키마(`app.openapi()`)다. 여기에 경로 26개, 작업 27개가 나온다. 스키마에서 빠진 `/metrics`와 정적 파일 경로 둘을 더했다. 10/2에 대화 정보·미리 채우기·판정 대상 보험 스키마를 다시 대조했다
 - 사용자 API는 모두 `/api/v1` 아래다. nginx가 `/api`·`/static`·`/health`를 백엔드로 넘긴다([[INS-INFRA-002]] 2장)
 - 엔드포인트마다 부르는 화면([[INS-UI-003]])과 유스케이스([[INS-UC-002]]), 이어지는 서비스 함수를 적는다. 화면에서 부르지 않는 엔드포인트는 "화면 없음"으로 적는다
 - 스키마 이름은 도메인 모델([[INS-DOM-004]])의 개념 이름과 같다
@@ -155,7 +155,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 화면 [[INS-UI-003#UI-4]] · 유스케이스 [[INS-UC-002#UC-H1]] · [[INS-UC-002#UC-H4]] · [[INS-UC-002#UC-H5]] · 서비스 `sessions.service.seed_slots`
 
-세션을 만든 직후, 첫 상황을 보내기 전에 부른다. 영역과 [[INS-UI-003#UI-3]]에서 고른 보험을 모델을 거치지 않고 대화 정보에 넣는다. 로그인 없이 들어와도 영역은 늘 보낸다.
+세션을 만든 직후, 첫 상황을 보내기 전에 부른다. 영역과 [[INS-UI-003#UI-3]]에서 고른 보험을 모델을 거치지 않고 대화 정보에 넣는다. 화면은 보험마다 계약 기간(`valid_from`·`valid_to`)을 함께 넘긴다. 첫 보험의 계약 기간이 대화 정보의 계약 시작·만료일이 되고, 보험이 여럿이면 비교 판정 때 보험마다 자기 계약 기간으로 보장기간을 따진다. 급여·비급여 금액과 계약 시작·만료일은 최상위 칸으로도 받는다. 모르는 칸은 오류 없이 버린다. 로그인 없이 들어와도 영역은 늘 보낸다.
 
 ```yaml
 /api/v1/sessions/{session_id}/slots:
@@ -174,6 +174,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
           application/json:
             schema: {$ref: '#/components/schemas/SlotSeedResponse'}
       '404': {description: SESSION_NOT_FOUND}
+      '422': {description: 금액이 음수이거나 날짜 형식이 틀렸다}
 ```
 
 #### GET/api/v1/sessions/{session_id} 세션 상태 보기
@@ -303,7 +304,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 화면 [[INS-UI-003#UI-6]] · 유스케이스 [[INS-UC-002#UC-H6]] · 서비스 `sessions.service.seed_slots`(병합만) — 라우터가 OCR·정보 추출 어댑터, 모델 분류·추출, 첨부 저장, 세션 저장소를 직접 부른다
 
-서류 종류를 가리고 항목을 뽑아 세션 대화 정보에 모델 없이 병합한다(`applied`). OCR 신뢰도가 0.6 미만이거나 값이 대화 정보 형식에 맞지 않으면 병합하지 않고 응답으로만 돌려준다. 분류·추출의 모델 오류(`LLMError`)는 빈 항목으로 200을 돌려주지만, 감싸지 않은 연결 오류는 500이 된다(5장). 첨부는 24시간 뒤 지운다.
+서류 종류를 가리고 항목을 뽑아 세션 대화 정보에 모델 없이 병합한다(`applied`). 영수증에서는 급여·비급여 합계까지, 청구서에서는 보험기간까지 뽑고, 금액은 정수로 바꾼다. 그래서 영수증을 올리면 다음 판정에 자기부담과 예상 지급액이 붙는다. OCR 신뢰도가 0.6 미만이거나 값이 대화 정보 형식에 맞지 않으면 병합하지 않고 응답으로만 돌려준다. 분류·추출의 모델 오류(`LLMError`)는 빈 항목으로 200을 돌려주지만, 감싸지 않은 연결 오류는 500이 된다(5장). 첨부는 24시간 뒤 지운다.
 
 ```yaml
 /api/v1/sessions/{session_id}/documents:
@@ -331,7 +332,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
                 doc_type: {type: string}
                 doc_type_confidence: {type: number}
                 doc_type_reason: {type: string}
-                extracted_slots: {type: object}
+                extracted_slots: {type: object, description: 뽑은 항목. 영수증은 claim_amount·covered_amount·non_covered_amount, 청구서는 policy_start_date·policy_end_date 를 담을 수 있다}
                 ocr_confidence: {type: number}
                 low_confidence: {type: boolean, description: 신뢰도 0.6 미만이면 참 — 다시 찍기 안내}
                 applied: {type: boolean, description: 대화 정보에 병합했는지. 저신뢰·형식 불일치면 거짓}
@@ -464,7 +465,7 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
 
 화면 [[INS-UI-003#UI-3]] · [[INS-UI-003#UI-7]] · 유스케이스 [[INS-UC-002#UC-H4]] · 서비스 없음 — 라우터가 마이데이터 어댑터를 직접 부른다
 
-실손만 돌려준다. 실손이 아닌 보험은 어댑터가 버린다. 시연 계정과 연결되지 않은 사용자는 빈 목록을 받는다. 마이데이터 실연동 설정이 없으면 예외를 받지 않아 500이 된다(5장).
+실손만 돌려준다. 실손이 아닌 보험은 어댑터가 버린다. 시연 계정과 연결되지 않은 사용자는 빈 목록을 받는다. 보험마다 계약일(`valid_from`)과 만기일(`valid_to`, 무기한이면 null)이 있고, 화면은 고른 보험을 이 계약 기간과 함께 미리 채우기([[#POST/api/v1/sessions/{session_id}/slots]])로 넘긴다. 마이데이터 실연동 설정이 없으면 예외를 받지 않아 500이 된다(5장).
 
 ```yaml
 /api/v1/auth/me/insurances:
@@ -478,7 +479,11 @@ upstream: [INS-UC-002, INS-UI-003, INS-DOM-004, INS-INFRA-002]
             schema:
               type: object
               properties:
-                insurances: {type: array, items: {type: object, description: 보험사·상품·증권번호·가입일·세대}}
+                insurances:
+                  type: array
+                  items:
+                    type: object
+                    description: 보험사 코드·이름 · 상품 코드·이름 · 증권번호 · 영역 · 계약일(valid_from) · 만기일(valid_to, 무기한이면 null) · 세대
       '401': {description: AUTH_REQUIRED}
       '500': {description: INTERNAL_ERROR — 실연동 설정이 없을 때}
 ```
@@ -714,10 +719,10 @@ components:
       status*: gathering | analyzing | answered | closed
     SessionStateResponse: {session_id*: string, created_at*: datetime, last_activity_at*: datetime, status*: string, slots*: SlotState, history: [Message], notes: [string]}
     Message: {role*: user|assistant, content*: string, created_at*: datetime, response_type: ask|assessment|answer|comparison|null}
-    SlotState: {insurer, insurer_id, product, policy_no, generation, incident_date, incident_location, diagnosis, diagnosis_code, hospital, hospitalization_days, outpatient_visits, treatment_period, claim_amount, purpose, treatment_overseas, is_oriental_medicine, dental_disease, other_insurance_settled, unknown_slots, "…"}
-    SlotSeedRequest: {insurer, insurer_id, product, policy_no, incident_date, diagnosis, diagnosis_code, hospital, hospitalization_days, outpatient_visits, treatment_period, claim_amount, incident_location, policies: [PolicyRef]}
+    SlotState: {area, insurer, insurer_id, product, policy_no, generation, policy_start_date: date|null, policy_end_date: date|null, incident_date, incident_location, diagnosis, diagnosis_code, hospital, hospitalization_days, outpatient_visits, treatment_period, claim_amount, covered_amount: integer|null, non_covered_amount: integer|null, purpose, treatment_overseas, is_oriental_medicine, dental_disease, other_insurance_settled, unknown_slots, "…"}
+    SlotSeedRequest: {insurer, insurer_id, product, policy_no, area, incident_date, diagnosis, diagnosis_code, hospital, hospitalization_days, outpatient_visits, treatment_period, claim_amount, incident_location, covered_amount: integer≥0|null, non_covered_amount: integer≥0|null, policy_start_date: date|null, policy_end_date: date|null, policies: [PolicyRef]}
     SlotSeedResponse: {slots*: SlotState, missing*: [string]}
-    PolicyRef: {insurer_id*: string, insurer*: string, product*: string, policy_no*: string, generation: integer|null}
+    PolicyRef: {insurer_id*: string, insurer*: string, product*: string, policy_no*: string, generation: integer|null, valid_from: date|null, valid_to: date|null}
     AssistantAsk: {type: ask, message*: string, expected_slots*: [string], options: [string]}
     AssistantAssessment:
       type: assessment
@@ -760,7 +765,7 @@ components:
     GraphView: {nodes: [{id, label, node_type, "…"}], edges: [{id, source, target, type}], node_count: integer, edge_count: integer}
 ```
 
-`AssistantAnswer`는 도메인 모델의 설명 답([[INS-DOM-004#AssistantAnswer]])이다. `HelpResponse`는 도움 답([[INS-DOM-004#HelpAnswer]])에서 내 보험 확인이 필요한지를 빼고 보낸다. `ClaimReceipt.submitted_at`은 ISO 8601 문자열로 만든다.
+`AssistantAnswer`는 도메인 모델의 설명 답([[INS-DOM-004#AssistantAnswer]])이다. `HelpResponse`는 도움 답([[INS-DOM-004#HelpAnswer]])에서 내 보험 확인이 필요한지를 빼고 보낸다. `ClaimReceipt.submitted_at`은 ISO 8601 문자열로 만든다. 날짜(`date`)는 `YYYY-MM-DD` 문자열로 오간다. `DeductibleView.payable_estimate`는 급여·비급여 금액이 있고 보장으로 판정된 보험에만, `prorated_share`는 그런 보험이 둘 이상일 때만 값이 있다. `SlotSeedRequest`는 모르는 칸을 오류 없이 버리므로, 새 칸을 보낼 때는 이 스키마에 있는지 먼저 본다.
 
 ## 5. 미결사항
 
@@ -776,3 +781,4 @@ components:
 - [ ] **마이데이터 실연동 에러** — 실연동 설정이 없을 때 나는 예외를 라우터가 받지 않아 500이 된다. 진료내역처럼 503 코드로 바꿀지 ([[#GET/api/v1/auth/me/insurances]])
 - [ ] **서류 분류의 연결 오류** — 분류·추출 모델 호출의 연결 오류는 `LLMError`로 감싸지 않아 500이 된다. 그때 파일은 이미 저장돼 있다 ([[#POST/api/v1/sessions/{session_id}/documents]])
 - [ ] **가입 보험의 실손 한정** — 이 엔드포인트가 실손만 돌려줘서, 가입 현황에 실손이 아닌 보험을 보여 줄 수 없다 ([[INS-PRD-002#R16]])
+- [ ] **미리 채우기의 모르는 칸** — [[#POST/api/v1/sessions/{session_id}/slots]]는 모르는 칸을 오류 없이 버린다(`extra` 무시). 10/2까지 급여·비급여 금액과 계약 시작·만료일이 이렇게 조용히 버려졌다. 모르는 칸을 422로 거절할지
