@@ -10,7 +10,7 @@ upstream: [INS-DOM-004, INS-API-002, INS-UC-002, INS-INFRA-002, INS-UI-003]
 
 > 1. 서버는 도메인 12개(`app/domains/*`), 설정과 외부 연동(`app/infrastructure`), 공용(`app/shared`), 운영 명령(`app/interfaces/cli`)으로 나뉜다. 서비스는 클래스가 아니라 모듈 함수다. 그래서 이 문서는 모듈 하나를 설계 클래스 하나로 그렸다.
 > 2. 테이블이 있는 엔티티는 7개다(보험사·상품·상품 버전·약관 문서·약관 청크·사용자·감사 기록). 대화 세션은 테이블 없이 서버 메모리에만 있다.
-> 3. 코드를 대조하다 찾은 것은 미결사항에 적었다. 판정 입력 중 계약 기간·급여/비급여 금액은 채우는 곳이 없어, 보장기간 규칙과 자기부담 계산이 대화에서는 돌지 않는다. 판정·설명 답의 LLM 호출은 재시도 장식자가 엉뚱한 함수에 붙어 SDK 재시도만 받는다. 서비스 없는 라우터와 crud 없는 도메인도 있다.
+> 3. 코드를 대조하다 찾은 것은 미결사항에 적었다. 판정·설명 답의 LLM 호출은 재시도 장식자가 엉뚱한 함수에 붙어 SDK 재시도만 받는다. 서비스 없는 라우터와 crud 없는 도메인도 있다. 판정 입력의 빈칸(계약 기간·급여/비급여 금액)은 10/2에 메웠다(E2, 아직 커밋 전).
 
 ## 0. 이 문서가 다루는 것
 
@@ -108,12 +108,12 @@ frontend/
 ├── public/
 └── src/
     ├── main.tsx · App.tsx      진입 · 라우팅(/app/*, /legal/*, /admin/graph, /showcase)
-    ├── pages/app/              사용자 흐름. AppFlow가 /app 한 경로 안에서 단계를 바꾼다
+    ├── pages/app/              사용자 흐름. AppFlow가 /app 한 경로 안에서 단계를 바꾼다. page.module.css가 흐름 화면 공통 틀이다
     ├── pages/admin/            관리자 그래프 탐색기
     ├── pages/legal/            안내 문서 넷 + 공통 틀
     ├── pages/ShowcasePage.tsx  디자인 견본(/showcase). 화면 명세에 없다
     ├── components/             두 화면 이상이 쓰는 조각 + 도움 챗봇
-    ├── design-system/          Carbon 기반 공용 컴포넌트·대화 패턴·훅
+    ├── design-system/          Carbon 기반 공용 컴포넌트·패턴(머리글·진행 단계·입력창)·훅
     ├── hooks/                  useSession(세션·스트리밍·첨부) · useFontSize
     ├── api/client.ts           서버 호출 전부 — 4.8 ApiClient
     ├── types/api.ts            응답 타입
@@ -136,7 +136,9 @@ frontend/
 | [[INS-UI-003#UI-9]] | `pages/admin/AdminGraphPage.tsx` · `TddTreeCanvas.tsx` |
 | [[INS-UI-003#UI-10]] | `pages/legal/*Page.tsx` 넷 · `DocShell.tsx` |
 
-기본형과 다른 점은 셋이다. 스타일이 `styles.css` 하나가 아니라 토큰·기본·유틸 세 파일이다. 두 화면 이상이 쓰는 조각이 `components/`와 `design-system/` 둘로 나뉜다. 관리자 화면이 `api/`를 거치지 않고 `fetch`를 직접 쓴다(3.2).
+기본형과 다른 점은 셋이다. 스타일이 `styles.css` 하나가 아니라 토큰·기본·유틸 세 파일과 흐름 화면 공통 틀(`pages/app/page.module.css`: 12칸 그리드·선 블록·등급 알약·게이지)로 나뉜다. 두 화면 이상이 쓰는 조각이 `components/`와 `design-system/` 둘로 나뉜다. 관리자 화면이 `api/`를 거치지 않고 `fetch`를 직접 쓴다(3.2).
+
+10/1 리디자인 뒤 사용자 흐름이 쓰는 패턴은 머리글(`ShellHeader`)·진행 단계(`PreStepper`)·입력창(`Composer`) 셋이다. `design-system/patterns/chat`의 나머지 16개(`AppShell`·`StepNavigator`·`ChatHead`·`MessageBubble`·`ChatStream` 등)는 아무도 가져오지 않는다. 쇼케이스도 쓰지 않는다(5장).
 
 ### 1.6 테스트·평가·스크립트
 
@@ -444,7 +446,7 @@ classDiagram
 
 #### SlotState 대화 정보
 
-`app/domains/sessions/schemas.py`. 대화에서 모은 청구 사실이다. 비어 있는 칸(`None`)이 곧 되물을 거리다. 모르는 필드를 받지 않는다(`extra=forbid`). 도메인 개념은 [[INS-DOM-004#SlotState]]이다.
+`app/domains/sessions/schemas.py`. 대화에서 모은 청구 사실이다. 비어 있는 칸(`None`)이 곧 되물을 거리다. 모르는 필드를 받지 않는다(`extra=forbid`). 날짜 칸(사고일·계약 시작일·만료일)은 ISO 문자열로 와도 날짜로 바뀐다. 도메인 개념은 [[INS-DOM-004#SlotState]]이다.
 
 ```mermaid
 classDiagram
@@ -468,6 +470,10 @@ classDiagram
     +str incident_location
     +int generation
     +str purpose
+    +int covered_amount
+    +int non_covered_amount
+    +date policy_start_date
+    +date policy_end_date
     +bool treatment_overseas
     +bool is_oriental_medicine
     +bool dental_disease
@@ -488,7 +494,7 @@ classDiagram
 | `diagnosis` | 진단명 |
 | `hospitalization_days` | 입원 일수(0 이상) |
 | `outpatient_visits` | 통원 횟수(0 이상) |
-| `unknown_slots` | 사용자가 모른다고 한 칸. 되물을 거리에서 뺀다 |
+| `unknown_slots` | 사용자가 모른다고 한 칸. 되물을 거리에서 뺀다. 모른다는 말이 없는 발화에서 모델이 표시한 칸은 버린다([[#SessionLlm]]) |
 | `hospital` | 의료기관 이름 |
 | `diagnosis_code` | 진단 코드(예: S82.5) |
 | `treatment_period` | 치료 기간 |
@@ -497,6 +503,10 @@ classDiagram
 | `incident_location` | 사고 장소 |
 | `generation` | 실손 세대(1~4). 마이데이터 미리 채우기가 넣는다 |
 | `purpose` | 청구 목적(치료·미용·예방·임신·자해·범죄/전쟁). 면책 판정의 핵심이다. 비면 치료로 본다 |
+| `covered_amount` | 급여 부분 본인 부담 금액(원, 0 이상). 영수증 IE나 대화("급여 30만원")에서 온다. 자기부담 계산의 입력이다 |
+| `non_covered_amount` | 비급여 부분 금액(원, 0 이상). 같은 곳에서 온다 |
+| `policy_start_date` | 계약 시작일. 고른 보험의 계약일(마이데이터)이 미리 채우기로 들어온다. 보장기간 규칙의 입력이다 |
+| `policy_end_date` | 계약 만료일. 비면 무기한으로 본다 |
 | `treatment_overseas` | 해외 의료기관 치료 |
 | `is_oriental_medicine` | 한방 치료 |
 | `dental_disease` | 치과 질병(상해 아님) |
@@ -515,10 +525,12 @@ classDiagram
     +str product
     +str policy_no
     +int generation
+    +date valid_from
+    +date valid_to
   }
 ```
 
-`generation`은 가입일로 정한 실손 세대(1~4)다. 비면 4세대로 본다. 비교 결과의 추천은 `policy_no`로 가리킨다.
+`generation`은 가입일로 정한 실손 세대(1~4)다. 비면 4세대로 본다. 비교 결과의 추천은 `policy_no`로 가리킨다. `valid_from`·`valid_to`는 마이데이터의 계약일·만기일이다(만기일이 없으면 무기한, ISO 문자열로 와도 날짜로 바뀐다). 미리 채우기가 첫 보험의 계약 기간을 대화 정보의 계약 시작·만료일로 옮기고, 비교 판정은 보험마다 자기 계약 기간을 얹어 따로 판정한다.
 
 #### TreatmentCard 진료 기록
 
@@ -599,16 +611,16 @@ classDiagram
 | `insurer_id` | 보험사 코드 |
 | `generation` | 실손 세대. 비면 4세대로 보고 `needs_generation`을 켠다 |
 | `treatment_type` | 입원·통원·수술·처방. 지금은 입원 일수·통원 횟수로 입원·통원만 추론한다 |
-| `benefit_type` | 급여·비급여. 지금은 채우는 곳이 없다(5장) |
+| `benefit_type` | 급여·비급여. 채우는 곳도 쓰는 규칙도 없다. 금액을 급여·비급여로 나눠 받으므로 필요하지 않다 |
 | `diagnosis` | 진단명 |
 | `diagnosis_code` | 진단 코드 |
 | `purpose` | 청구 목적. 기본은 치료 |
 | `charged_amount` | 총 본인 부담 의료비. 대화 정보의 청구 금액에서 온다 |
-| `covered_amount` | 급여 부분 금액. 지금은 채우는 곳이 없다(5장) |
-| `non_covered_amount` | 비급여 부분 금액. 지금은 채우는 곳이 없다(5장) |
+| `covered_amount` | 급여 부분 금액. 대화 정보의 같은 칸에서 온다 |
+| `non_covered_amount` | 비급여 부분 금액. 대화 정보의 같은 칸에서 온다 |
 | `incident_date` | 사고·발병일 |
-| `policy_start_date` | 계약 시작일. 지금은 채우는 곳이 없다(5장) |
-| `policy_end_date` | 계약 만료일. 지금은 채우는 곳이 없다(5장) |
+| `policy_start_date` | 계약 시작일. 대화 정보에서 오고, 비교 판정에서는 보험마다 그 보험의 계약일이다 |
+| `policy_end_date` | 계약 만료일. 비면 무기한으로 보고 보장기간 규칙은 시작일만 따진다 |
 | `hospitalization_days` | 입원 일수 |
 | `outpatient_visits` | 통원 횟수 |
 | `treatment_overseas` | 해외 치료 |
@@ -810,7 +822,7 @@ classDiagram
   }
 ```
 
-`policies`는 보험별 판정과 자기부담 보기(세대·급여/비급여 비율·통원 최소 공제·지급 추정·안분액)다. `recommended_policy_no`는 보장되는 계약 가운데 비급여 자기부담률이 가장 낮은 계약이다. 보장되는 계약이 없으면 비어 있다.
+`policies`는 보험별 판정과 자기부담 보기(세대·급여/비급여 비율·통원 최소 공제·지급 추정·안분액)다. 지급 추정은 급여·비급여 금액이 있고 보장으로 판정된 보험에만, 안분액은 그런 보험이 둘 이상일 때만 있다. `recommended_policy_no`는 보장되는 계약 가운데 비급여 자기부담률이 가장 낮은 계약이다. 보장되는 계약이 없으면 비어 있다.
 
 #### HelpAnswer 도움 답
 
@@ -1105,11 +1117,11 @@ classDiagram
 
 규칙
 
-- `post_message`는 한 턴을 이 순서로 처리한다. ① 감사 기록 시작 ② 사용자 메시지 기록 ③ 인사·잡담이고 모인 정보가 없으면 LLM 없이 환영 ④ 의도 분류 — 일반 질문이면 조항을 인용한 설명 답([[#AssistantAnswer]]), 범위 밖이면 안내 되묻기 ⑤ 사실 추출·병합 ⑥ [[#CoverageEngine]] 판정 ⑦ 빠진 사실이 있으면 되묻기 ⑧ 판정 대상 보험이 둘 이상이면 보험별로 판정해 비교 ⑨ 조항 검색 — 없으면 되묻기 ⑩ 판정 답 생성
+- `post_message`는 한 턴을 이 순서로 처리한다. ① 감사 기록 시작 ② 사용자 메시지 기록 ③ 인사·잡담이고 모인 정보가 없으면 LLM 없이 환영 ④ 의도 분류 — 일반 질문이면 조항을 인용한 설명 답([[#AssistantAnswer]]), 범위 밖이면 안내 되묻기 ⑤ 사실 추출·병합 ⑥ [[#CoverageEngine]] 판정 ⑦ 빠진 사실이 있으면 되묻기 ⑧ 판정 대상 보험이 둘 이상이면 보험마다 그 보험의 세대·계약 기간을 얹어 판정해 비교 ⑨ 조항 검색 — 없으면 되묻기 ⑩ 판정 답 생성
 - 되묻기는 한 번까지다. 이미 한 번 되물었거나, 모른다고 한 칸이 둘 이상이거나, 지금 답해 달라고 하거나, ⑥의 판정이 면책·조건부면 빠진 사실이 있어도 부분 판정(`confidence=partial`)으로 간다
 - 모든 분기가 응답을 돌려주기 전에 감사 기록을 마친다([[#AuditService]]). 예외가 나면 실패로 남기고 다시 던진다
 - `RAG_REACT`를 켜면 ⑨를 LangGraph 에이전트가 맡는다(기본 꺼짐). 에이전트가 실패하면 단순 검색으로 돌아간다
-- `seed_slots`는 LLM을 거치지 않는다. 가입 현황에서 고른 보험(`policies`·보험사 코드·증권 번호 등)과 서류에서 뽑은 항목을 대화 정보에 그대로 합친다
+- `seed_slots`는 LLM을 거치지 않는다. 가입 현황에서 고른 보험(`policies`·보험사 코드·증권 번호 등)과 서류에서 뽑은 항목을 대화 정보에 그대로 합친다. 첫 보험의 계약 기간(`valid_from`·`valid_to`)은 계약 시작·만료일 칸으로 옮긴다
 
 #### SessionStore 세션 저장소
 
@@ -1176,6 +1188,8 @@ classDiagram
 - 프롬프트는 `prompts/v1/*.md`, 모델은 Solar다. 응답은 JSON 스키마로 검증하고, 틀리면 `SchemaViolationError`다(라우터는 이것도 `LLM_UNAVAILABLE`로 바꾼다)
 - 형식이 틀렸을 때: 판정 답과 설명 답은 재시도 지시를 붙여 한 번 더 부르고(스트리밍 없이), 그래도 틀리면 `SchemaViolationError`를 던진다. 도움 답은 인용 없는 답으로 한 번 더 부른다. 사실 추출·되묻기·분류는 다시 요청하지 않는다
 - 연결·한도·시간 초과·서버 오류일 때: SDK가 두 번까지 다시 보낸다(`LLM_MAX_RETRIES`). 도구 호출로 부르는 다섯(사실 추출·되묻기·의도 분류·서류 분류·서류 항목 추출)은 그 위에서 호출을 세 번까지 되풀이한다. 판정·설명·도움 답의 구조화 호출에는 이 되풀이가 없다(5장)
+- 사실 추출은 모델 결과 위에 결정론 보강 둘을 얹는다. ① 이름이 붙은 금액(급여·비급여·병원비·환자 부담금 등)과 "N일 입원"·"통원 N번"을 모델이 비웠으면 문장에서 그대로 읽어 채운다(모델 값은 덮지 않는다) ② 모른다는 말이 없는 발화의 `unknown_slots`는 버린다. 10/2에 긴 발화에서 모델이 이 칸들을 빼고, 말하지 않은 칸을 모름으로 표시한 것을 보고 넣었다. 진단명은 증상을 병명으로 바꿔야 해서 보강하지 않는다
+- 서류 항목 추출은 금액·일수 칸을 정수로 선언하고, 문자열로 와도 정수로 바꾼다(숫자가 없으면 버린다)
 - 판정 답은 [[#CoverageEngine]]의 결과를 받아 설명한다. 인용은 이번 턴에 검색한 청크 안에서만 고른다. 밖의 id는 버린다
 - 인용을 만들 때 원본 경로를 [[#DocumentsService]]에서 받아 페이지 이미지와 하이라이트를 만든다([[#PdfImageService]])
 - 판정 답을 만든 뒤 준비도를 계산해 붙인다([[#ReadinessCalculator]])
@@ -1227,11 +1241,11 @@ classDiagram
 규칙
 
 - 결정론이다. LLM도 DB도 부르지 않는다. 같은 사실이면 같은 판정이다
-- 규칙은 11개다. 보장기간 1(보장기간 밖 사고), 면책 5(미용·예방·임신·자해·범죄/전쟁), 부분 보상 4(한방·해외·치과 질병·자동차/산재 처리분), 보장 근거 1(치료 목적)이다
+- 규칙은 11개다. 보장기간 1(보장기간 밖 사고), 면책 5(미용·예방·임신·자해·범죄/전쟁), 부분 보상 4(한방·해외·치과 질병·자동차/산재 처리분), 보장 근거 1(치료 목적)이다. 보장기간 규칙은 사고일이 계약 시작일 전이거나, 만료일이 있고 그 뒤이면 맞는다. 만료일이 없는(무기한) 계약도 시작 전 사고는 잡는다
 - 보는 순서: 보장기간이 맞으면 면책(`excluded`) → 면책 규칙이 맞으면 `excluded` → 부분 보상이 맞으면 `conditional` → 보장 근거가 맞으면 `covered` → 판정에 필요한 사실이 없으면 `insufficient_info` → 나머지는 `conditional`
 - 규칙마다 적용 범위(영역·세대·보험사·적용 기간)와 근거 조항 표기를 가진다(`CoverageRule`·`RuleScope`). `rules_for`가 범위로 먼저 거른다
 - 자기부담률은 세대별 표(`DEDUCTIBLE_PARAMS`)다. 1세대 급여 0%·비급여 0%·통원 최소 5,000원, 2·3세대 10%·20%·10,000원, 4세대 20%·30%·30,000원. 급여·비급여 금액이 둘 다 없으면 계산하지 않는다
-- [[#ClaimFacts]]의 계약 시작·만료일과 급여·비급여 금액을 채우는 곳이 없다. 그래서 대화 흐름에서는 보장기간 규칙이 맞을 수 없고 자기부담도 계산되지 않는다(5장)
+- [[#ClaimFacts]]의 계약 시작·만료일과 급여·비급여 금액은 대화 정보에서 온다(10/2, E2). 영수증을 올리거나 금액을 말하면 자기부담이 계산되고, 시연 페르소나 p13(만기 뒤 진료)·p14(가입 전 진료)는 보장기간 면책이 된다. E2 전에는 이 칸들이 늘 비어 보장기간 규칙이 맞을 수 없었다
 
 #### ProrationCalculator 비례 안분
 
@@ -1254,7 +1268,7 @@ classDiagram
 - 보험별 판정 가운데 보장(`covered`)이고 지급 추정액이 있는 계약만 안분한다. 그런 계약이 둘 이상이면 실제 지급 총액을 가장 큰 추정액으로 보고, 계약마다 자기 추정액 비율로 나눈다
 - 세대를 모르면 4세대로 본다
 - 추천(먼저 청구할 보험)은 안분과 따로 정한다. 보장되는 계약 가운데 비급여 자기부담률이 가장 낮은 계약이다. 금액이 없어도 나온다. 요약 문장과 함께 [[#AssistantComparison]]으로 나간다
-- 지금은 지급 추정액이 늘 비어 있어 안분액이 나오지 않는다. [[#CoverageEngine]]이 자기부담을 계산하지 못하기 때문이다(5장)
+- 지급 추정액은 [[#CoverageEngine]]이 자기부담을 계산했을 때만 있다. 즉 급여·비급여 금액을 말했거나 영수증을 올렸을 때다. 금액이 없으면 안분액도 비어 있다. 예: 4세대·3세대 실손에 급여 300,000·비급여 500,000이면 지급 추정 590,000·670,000, 안분액 313,730·356,270이다
 
 #### PdfImageService 원본 캡처
 
@@ -1693,8 +1707,9 @@ classDiagram
 
 규칙
 
-- 구현은 둘이다. `DummyAdapter`(기본)는 `data/demo/mydata.json`에 내부 모양으로 준비된 값(세대 포함, 실손만)을 그대로 돌려준다. `RealAdapter`는 표준 API(`/v2/insu/insurances`·`/basic`)를 부르고, 주소와 토큰이 없을 때만 `MydataNotConfiguredError`를 낸다
-- 실연동은 표준 모양을 내부 모양으로 바꾸고(`normalize_standard_insurance`), 가입일로 실손 세대를 정한다(`derive_generation`)
+- 구현은 둘이다. `DummyAdapter`(기본)는 `data/demo/mydata.json`에 내부 모양으로 준비된 값(세대·계약일·만기일 포함, 실손만)을 그대로 돌려준다. `RealAdapter`는 표준 API(`/v2/insu/insurances`·`/basic`)를 부르고, 주소와 토큰이 없을 때만 `MydataNotConfiguredError`를 낸다
+- 실연동은 표준 모양을 내부 모양으로 바꾸고(`normalize_standard_insurance`), 가입일로 실손 세대를 정한다(`derive_generation`). 계약일·만기일은 `valid_from`·`valid_to`로 넘기고, 만기일이 9999로 시작하면 무기한(`null`)으로 둔다
+- 화면은 고른 보험을 이 계약 기간과 함께 미리 채우기로 보내, 판정의 보장기간 규칙까지 잇는다([[#PolicyRef]])
 - 실연동은 상품명으로 실손이 아니거나 정상 계약이 아니면 뺀다. 더미에는 처음부터 실손만 있다. 그래서 가입 현황에 실손이 아닌 보험을 보여 줄 수 없다([[INS-API-002]] 5장)
 
 #### HealthDataAdapter 진료내역 어댑터
@@ -1748,6 +1763,7 @@ classDiagram
 
 - JPEG·PNG·WebP, 10MB까지 받는다. 화면의 첨부 선택 창도 이 셋만 고르게 한다([[INS-UI-003#UI-6]])
 - 업로드 절차(라우터에 있다): 문자 인식 → 개인정보 가림 → 서류 분류 → 항목 추출 → 대화 정보 병합. 항목 추출은 IE를 먼저 쓰고, 실패하면 LLM 추출로 넘어간다
+- IE 스키마(`DOC_IE_SCHEMAS`)는 영수증에서 급여·비급여 합계를, 청구서에서 보험기간을 뽑는다. 필드 이름이 대화 정보 칸과 같아 `ie_result_to_slots`는 거르기와 형 바꾸기만 한다. 금액은 숫자만 남겨 정수로 바꾸고, 숫자가 없으면 버린다
 - 분류·추출이 모델 오류(`LLMError`)로 실패하면 빈 항목으로 성공을 돌려준다. 연결 오류는 감싸지 않아 500이 되고, 그때 파일은 이미 저장돼 있다(5장)
 - 뽑은 항목은 [[#SessionService]]의 `seed_slots`로 세션 대화 정보에 모델 없이 병합한다([[INS-UC-002#UC-H6]] 3단계). OCR 신뢰도가 0.6 미만이거나 값이 대화 정보 검증을 못 넘으면 병합하지 않고 응답으로만 돌려준다(`applied`가 거짓). 화면은 채워진 항목을 어시스턴트 메시지로 보여 주고, 틀린 것만 말로 고치게 한다
 
@@ -1936,14 +1952,14 @@ classDiagram
 - [ ] **라우터 파일 안의 응답 모델** — `sessions/router.py`의 응답 모델 넷을 `schemas.py`로 옮길지
 - [ ] **외부 어댑터 위치** — 마이데이터·건강보험·심평원 어댑터는 쓰는 곳이 하나씩인데 `infrastructure/external/`에 있다. 진료내역 라우터도 거기 있다(1.3). 쓰는 도메인으로 옮길지
 - [ ] **감사 기록 위치** — `app/shared/audit/`은 테이블을 가진 서비스라 공용 유틸이 아니다. 부르는 곳도 세션 서비스 하나다(1.3). 도메인으로 옮길지
-- [ ] **판정 입력의 빈칸** — 대화 정보에서 청구 사실로 옮길 때 계약 시작·만료일과 급여·비급여 금액을 채우는 곳이 없다. 그래서 보장기간 규칙이 맞을 수 없고, 자기부담과 비례 안분액이 계산되지 않는다([[#CoverageEngine]] · [[#ProrationCalculator]]). 마이데이터 계약일과 서류(영수증)의 급여·비급여 칸을 연결할지
+- [x] ~~판정 입력의 빈칸~~ — 10/2 메웠다(E2, 아직 커밋 전). 마이데이터 계약일·만기일 → [[#PolicyRef]] → 대화 정보, 영수증의 급여·비급여 합계와 대화의 금액 → 대화 정보 → [[#ClaimFacts]]. 보장기간 규칙은 만료일 없이도 시작일로 판정한다. 급여 구분(`benefit_type`)은 쓰는 규칙이 없어 채우지 않는다([[#CoverageEngine]] · [[#ProrationCalculator]])
 - [ ] **`SessionLlm` 크기** — `sessions/llm.py` 한 파일(1,649줄)에 LLM 호출·스키마 검증·인용 조립(원본 경로·페이지 이미지·하이라이트)이 섞여 있다. 인용 조립을 나눌지
 - [ ] **포트에 없는 메서드** — [[#OcrAdapter]] 포트에는 `extract_text`만 있어, 라우터가 IE 호출에 타입 검사를 끄고 쓴다. 포트에 올릴지
 - [ ] **구현이 하나뿐인 포트** — [[#GraphSourcePort]]는 두 번째 구현(연구팀 JSON)을 기다리며 먼저 만들었다. 규약은 두 번째 구현이 생길 때 만들라고 한다. 연구팀 JSON이 안 오면 걷어낼지
 - [ ] **LLM 호출의 재시도와 감싸기** — 재시도 장식자가 `_call_structured`가 아니라 그 위에 끼어든 `_partial_json_string`에 붙어 있어, 판정·설명·도움 답은 SDK 재시도만 받는다. 서류 분류·항목 추출은 SDK 예외를 `LLMError`로 감싸지 않아 연결 오류가 500이 된다([[#SessionLlm]] · [[#AttachmentsService]]). 장식자를 옮기고 예외를 감쌀지
 - [ ] **마이데이터 실연동 에러** — `RealAdapter`의 `MydataNotConfiguredError`를 라우터가 받지 않아 500이 된다. 진료내역처럼 503 코드로 바꿀지
 - [ ] **세션과 워커 수** — [[#SessionStore]]는 잠금 없는 프로세스 메모리다. 백엔드를 여러 개로 늘리면 세션이 갈린다. 늘리기 전에 저장소를 정해야 한다
-- [ ] **쓰이지 않는 것** — chunks·search 빈 라우터, `get_chunk`(부르는 곳 없음), `list_chunks`·`delete_attachment`·`SessionStore.count`·`purge_expired`·`VectorRetriever.retrieve`·`NeuroSymbolicRetriever.health`·`SymbolicGraphChannel.health`(테스트만), 화면이 안 부르는 클라이언트 함수 넷, `data/static/fault_ratio/`(자동차 과실비율 잔재), `docker-compose.neo4j.yml`(Memgraph로 바꾼 뒤 잔재), 영역 허용값 `auto`·`fire`, 화면 타입의 `fault_ratio`. 정리할지
+- [ ] **쓰이지 않는 것** — chunks·search 빈 라우터, `get_chunk`(부르는 곳 없음), `list_chunks`·`delete_attachment`·`SessionStore.count`·`purge_expired`·`VectorRetriever.retrieve`·`NeuroSymbolicRetriever.health`·`SymbolicGraphChannel.health`(테스트만), 화면이 안 부르는 클라이언트 함수 넷, `data/static/fault_ratio/`(자동차 과실비율 잔재), `docker-compose.neo4j.yml`(Memgraph로 바꾼 뒤 잔재), 영역 허용값 `auto`·`fire`, 화면 타입의 `fault_ratio`, 리디자인 뒤 아무도 가져오지 않는 대화 패턴 16개(1.5). 정리할지
 - [ ] **발표 자료 스크립트** — `scripts/`에 제품과 무관한 발표·제안서 스크립트 10개가 있고, 그중 둘은 다른 과제(VODA 데이터 카탈로그) 장표다. 공개 저장소에서 뺄지
 - [ ] **`tags_json` 이름** — JSON이 아니라 쉼표로 이은 문자열이 들어간다. 이름이나 내용을 맞출지
 - [ ] **Section 클래스** — 도메인 개념 [[INS-DOM-004#Section]]에 해당하는 클래스와 열이 없다. 같은 조 번호가 본문·부속에 되풀이되므로, 청크에 구간을 저장할지
