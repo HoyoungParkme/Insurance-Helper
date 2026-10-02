@@ -9,8 +9,8 @@ upstream: [INS-MS-002, INS-SEQ-002, INS-SCN-002, INS-UC-002, INS-API-002, INS-UI
 # 구현 계획 — 보험길잡이
 
 > 1. 이미 만든 기능을 슬라이스 16개로 나눴다. 코드가 명세보다 먼저 있었으므로 계획이 아니라 소급 기록이다. 완료란에는 그 슬라이스를 만들거나 크게 바꾼 커밋을 적었다.
-> 2. 명세를 쓰며 찾은 빈 곳 가운데 코드를 고쳐야 하는 것을 남은 슬라이스 13개(E1~E13)로 묶었다. 10/1~10/2에 E1(서류 항목을 대화 정보에 넣기)과 E2(급여/비급여 금액·계약 기간을 판정에 넣기)를 끝냈고, 화면 리디자인(D4)을 했다. 셋 다 아직 커밋 전이다. 남은 것 가운데 사용자에게 보이는 빈 곳은 청구 준비 세 상태(E9), 운영 위험은 요청 한도(E4)·배포 게이트(E13)다.
-> 3. 10/2에 CI와 같은 조건으로 돌린 pytest 1,184건이 모두 통과했다(E1 3건 · E2 20건 추가). E2E 42문항은 7/30 실행에서 38문항이 결정론 채점을 모두 통과했다. 두 문항은 판정 대신 되묻기로 갔고, 두 문항은 인용 키워드·필수 언급이 하나씩 모자랐다.
+> 2. 명세를 쓰며 찾은 빈 곳 가운데 코드를 고쳐야 하는 것을 남은 슬라이스 13개(E1~E13)로 묶었다. 10/1~10/2에 E1(서류 항목을 대화 정보에 넣기)과 E2(급여/비급여 금액·계약 기간을 판정에 넣기)를 끝냈고, 화면 리디자인(D4)을 했다. 셋 다 아직 커밋 전이고, 명세 되먹임은 끝냈다. 남은 것 가운데 사용자에게 보이는 빈 곳은 청구 준비 세 상태(E9), 운영 위험은 요청 한도(E4)·배포 게이트(E13)다.
+> 3. 10/2에 CI와 같은 조건으로 돌린 pytest 1,187건이 모두 통과했다(E1 3건 · E2 23건 추가). E2E 42문항은 7/30 실행에서 38문항이 결정론 채점을 모두 통과했다. 두 문항은 판정 대신 되묻기로 갔고, 두 문항은 인용 키워드·필수 언급이 하나씩 모자랐다.
 
 ## 0. 이 문서가 다루는 것
 
@@ -20,7 +20,7 @@ upstream: [INS-MS-002, INS-SEQ-002, INS-SCN-002, INS-UC-002, INS-API-002, INS-UI
 - 한 커밋이 여러 카드에 걸치면 카드마다 적었다. 어느 카드에도 적지 않은 커밋 넷은 3장에 있다
 - 카드는 호출 그래프로 닫혀 있다. 카드의 함수가 부르는 함수([[INS-MS-002]] 「호출하는 것」)는 같은 카드나 선행 카드에 있다. 스텁은 없다
 - 완료 조건 가운데 docstring 항목 ID 대조·시그니처 검사·`check_calls.py`는 이 저장소에 도구가 없어 따지지 않았다. 따진 것은 CI 게이트(ruff · pytest · `tsc -b && vite build`)다. 화면 카드의 사람 확인은 10/1~10/2 로컬 도커 스택(`docker-compose.local-data.yml`)에서 했다. 라이브는 8/5부터 멈춰 있다
-- 테스트 건수는 10/2에 기본 설정(`-m 'not eval'`)으로 모은 것이다. 모두 1,210건이고 카드별 건수를 더하면 이 수가 된다. CI는 Docker가 필요한 pgvector 테스트 등 26건을 빼고 1,184건을 돌린다
+- 테스트 건수는 10/2에 기본 설정(`-m 'not eval'`)으로 모은 것이다. 모두 1,212건이고 카드별 건수를 더하면 이 수가 된다. CI는 여기서 Docker가 필요한 pgvector 테스트 25건을 더 빼고 1,187건을 돌린다
 - 남은 슬라이스(E)는 앞 문서들의 미결사항·되먹일 것 가운데 코드를 고쳐야 하는 것만 모았다. 문서만 고치면 되는 것은 4장에 적었다
 
 ## 1. 슬라이스
@@ -145,7 +145,7 @@ flowchart LR
 | 구현 함수 | [[INS-MS-002#SessionService.create_session]] · [[INS-MS-002#SessionService.post_message]] · [[INS-MS-002#SessionService.seed_slots]] · [[INS-MS-002#SessionStore.get]] · [[INS-MS-002#SessionLlm.classify_intent]] · [[INS-MS-002#SessionLlm.extract_slots]] · [[INS-MS-002#SessionLlm.next_question]] · [[INS-MS-002#SessionLlm.generate_assessment]] · [[INS-MS-002#SessionLlm.generate_explanation]] |
 | API | [[INS-API-002#POST/api/v1/sessions]] · [[INS-API-002#POST/api/v1/sessions/{session_id}/messages/stream]] · [[INS-API-002#POST/api/v1/sessions/{session_id}/messages]] · [[INS-API-002#POST/api/v1/sessions/{session_id}/slots]] · [[INS-API-002#GET/api/v1/sessions/{session_id}]] · [[INS-API-002#DELETE/api/v1/sessions/{session_id}]] |
 | 화면 | [[INS-UI-003#UI-1]] 4 · [[INS-UI-003#UI-4]] · [[INS-UI-003#UI-5]] · [[INS-UI-003#UI-6]] 2 · 2.1 · 4 · 5 · 5.1 · 5.3 · 6 · 8 |
-| 테스트 | 361건 — `tests/sessions`에서 341(서비스 91은 도움 답 포함 · 스키마 54 · LLM 55 · 저장소 33 · 스몰토크 24 · 라우터 27 · CLI 14 · 대화 정보 10 · 추출 방어 9(E2) · 자유 질의 8 · 인용 조립 7 · 재청구 6 · 엔진 연결 3) · `tests/llm`의 의도·프롬프트 13 · `tests/shared` 7 + E2E 평가셋(2장) |
+| 테스트 | 364건 — `tests/sessions`에서 344(서비스 91은 도움 답 포함 · 스키마 54 · LLM 55 · 저장소 33 · 스몰토크 24 · 라우터 29(그중 2건은 E2 미리 채우기) · CLI 14 · 대화 정보 10 · 추출 방어 10(E2) · 자유 질의 8 · 인용 조립 7 · 재청구 6 · 엔진 연결 3) · `tests/llm`의 의도·프롬프트 13 · `tests/shared` 7 + E2E 평가셋(2장) |
 | 선행 | B2 · B4 · C1 · C2 |
 | 완료 | `7e09095` 6/23 합본(세션·대화 정보·판정 흐름) · `865f60c` 6/24 가입 정보가 없을 때 일반 안내 · `d6422c9` 7/3 대화 정보 미리 채우기 · `f5db143` 7/3 자동차·화재 걷어냄 · `d0087fe` 7/6 자동차·화재 잔재 · `d437fbd` 7/6 설명 답과 의도 분류 · `b71832e` 7/8 판정 흐름에 엔진 연결 · `413cb9c` 7/8 SSE 스트리밍 · `b15159a` 7/8 스트리밍 대화 화면 · `c21a5e2` 7/9 답 먼저·되묻기 한 번·표준약관 모드 · `02f81e3` 7/10 판정 뒤 멀티턴·요약 구조·식별자 차단 · `f8d2cf8` 7/10 체감 타이핑 · `e1eb271` 7/10 의도 분류에 직전 발화 · `dd7f6dc` 7/10 각주 표시 제거 · `6fd9fb1` 7/10 세션 메모 · `789e8b0` 7/20 프롬프트 파일 분리 · `dfc2809` 7/20 재청구 논리 · `ae1ada7` 7/20 면책 확정 시 되묻기 생략 · `862269a` 7/20 면책 목적 여섯 배선 · `edd795e` 7/20 조건부 답 · `195dbb4` 7/20 의도 판단을 모델로 · `67a4bf8` 7/21 보험사 목록 하나로 · `3ed545e` 7/21 조용한 폴백에 로그 · 10/2 대화 추출 프롬프트 보강 + 결정론 방어 3종(미커밋, [[#E2]]) |
 
@@ -247,7 +247,7 @@ flowchart LR
 | 화면 | [[INS-UI-003#UI-1]] ~ [[INS-UI-003#UI-8]] |
 | 테스트 | 프론트 빌드(`tsc -b && vite build`) + 10/1 로컬 도커 스택(`docker-compose.local-data.yml`, nginx :8080)에서 Playwright로 첫 화면 → 본인 확인 → 가입 현황 → 상황 입력 → 분석 중 → 상담(김민서 2건 비교) → 청구 준비까지 눈으로 확인. 사용자 확인 뒤 글자 크기·브랜드·밀도·첫 화면·문구를 다시 손봤다 |
 | 선행 | D3 |
-| 완료 | 10/1 구현(미커밋 — `frontend/src` 40여 파일 + `page.module.css` 신규). 명세 [[INS-UI-003]] v5·v6와 캔버스(version 9)가 같은 모습 |
+| 완료 | 10/1 구현(미커밋 — `frontend/src` 45개 파일, 새 파일 `page.module.css` 포함). 명세 [[INS-UI-003]] v5·v6와 캔버스(version 9)가 같은 모습 |
 
 ### 1.2 남은 것
 
@@ -264,6 +264,7 @@ flowchart LR
   C7 --> E3
   A --> E4
   C3 --> E4
+  C3 --> E5
   C4 --> E5
   C7 --> E5
   B1 --> E6
@@ -298,13 +299,13 @@ flowchart LR
 | 항목 | 내용 |
 |---|---|
 | 근거 | [[INS-DOM-005#CoverageEngine]] · [[INS-DOM-005#ProrationCalculator]] · [[INS-DOM-004#ClaimFacts]] · [[INS-UC-002#UC-H5]] · [[INS-PRD-002#R17]] · [[INS-SEQ-002#SEQ-5]] |
-| 구현 | ① `SlotState`에 `covered_amount`·`non_covered_amount`·`policy_start_date`·`policy_end_date`를 두고 `build_facts_from_slots`가 청구 사실로 넘긴다 ② 마이데이터 seed의 `PolicyRef.valid_from/valid_to`가 계약 기간을 슬롯에 얹고, 다중 비교는 보험마다 자기 계약 기간으로 판정한다. 화면 seed에 `valid_from/valid_to`를 넣었다 ③ 보장기간 규칙이 만료일 None(무기한)이어도 시작일만으로 '개시 전 사고'를 잡는다 ④ 영수증 IE 스키마에 급여/비급여 합계, 청구서에 보험기간을 더하고 금액 문자열('1,317,400')을 정수로 보정한다 ⑤ 대화 추출 도구에 네 필드와 규칙(증상→진단명, 'N일 입원'→정수, 만원 변환, 언급 안 한 필드는 unknown 금지)을 넣었다. 긴 발화에서 모델이 입원 일수·금액을 빼먹고 언급 안 한 12개 필드를 '모름' 처리하는 흔들림을 실관측해, 사용자가 문자 그대로 말한 것만 읽는 결정론 방어 셋을 더했다 — 무지 표현 없는 `unknown_slots` 폐기 · 라벨 붙은 금액 백필 · 라벨 붙은 치료량 백필(모델이 채운 값은 덮지 않음) |
+| 구현 | ① `SlotState`에 `covered_amount`·`non_covered_amount`·`policy_start_date`·`policy_end_date`를 두고 `build_facts_from_slots`가 청구 사실로 넘긴다 ② 마이데이터 seed의 `PolicyRef.valid_from/valid_to`가 계약 기간을 슬롯에 얹고, 다중 비교는 보험마다 자기 계약 기간으로 판정한다. 화면 seed에 `valid_from/valid_to`를 넣었다 ③ 보장기간 규칙이 만료일 None(무기한)이어도 시작일만으로 '개시 전 사고'를 잡는다 ④ 영수증 IE 스키마에 급여/비급여 합계, 청구서에 보험기간을 더하고 금액 문자열('1,317,400')을 정수로 보정한다 ⑤ 대화 추출 도구에 네 필드와 규칙(증상→진단명, 'N일 입원'→정수, 만원 변환, 언급 안 한 필드는 unknown 금지)을 넣었다. 긴 발화에서 모델이 입원 일수·금액을 빼먹고 언급 안 한 12개 필드를 '모름' 처리하는 흔들림을 실관측해, 사용자가 문자 그대로 말한 것만 읽는 결정론 방어 셋을 더했다 — 무지 표현 없는 `unknown_slots` 폐기 · 라벨 붙은 금액 백필 · 라벨 붙은 치료량 백필(모델이 채운 값은 덮지 않음). 금액 라벨에는 진료내역을 고르면 화면이 보내는 문장의 '환자 부담금'도 넣었다 ⑥ HTTP 미리 채우기 요청 모델(`SlotSeedRequest`)이 모르는 칸을 버려 최상위 급여·비급여 금액과 계약 시작·만료일이 조용히 사라지던 것을, 네 칸을 받게 고쳤다 |
 | 구현 함수 | [[INS-MS-002#CoverageEngine.build_facts_from_slots]] · [[INS-MS-002#MydataAdapter.fetch_insurances]] · [[INS-MS-002#SessionLlm.extract_slots_from_document]] · [[INS-MS-002#SessionLlm.extract_slots]] · [[INS-MS-002#SessionService.seed_slots]] · [[INS-MS-002#ProrationCalculator.compute]] |
 | API | [[INS-API-002#GET/api/v1/auth/me/insurances]] · [[INS-API-002#POST/api/v1/sessions/{session_id}/slots]] |
 | 화면 | [[INS-UI-003#UI-6]] 9 |
-| 테스트 | 20건 — `tests/coverage/test_rules.py` 5(배선·ISO 날짜 보정·공제 산정 210,000/590,000·무기한 보장기간 면책·기간 안 보장) · `tests/sessions/test_comparison.py` 2(보험별 계약 기간 판정·seed 계약 기간) · `tests/attachments/test_ie_schemas.py` 4(금액 정수화·숫자 없는 금액 폐기·청구서 보험기간·스키마 필드명 = 슬롯 필드명) · `tests/sessions/test_extract_guards.py` 9(만원 변환·금액 백필·치료량 백필·무지 가드). IE 실측(`receipt__clean.png`): 154,000 = 급여 84,000 + 비급여 70,000. 로컬 도커 실측(김민서 2건, "급여 30만원, 비급여 50만원"): 비교표 삼성 313,730원 / 현대 356,270원 · 둘 다 '높음' · 현대 먼저 청구 추천(이전엔 '중간'·"금액 입력 시") |
+| 테스트 | 23건 — `tests/coverage/test_rules.py` 5(배선·ISO 날짜 보정·공제 산정 210,000/590,000·무기한 보장기간 면책·기간 안 보장) · `tests/sessions/test_comparison.py` 2(보험별 계약 기간 판정·seed 계약 기간) · `tests/attachments/test_ie_schemas.py` 4(금액 정수화·숫자 없는 금액 폐기·청구서 보험기간·스키마 필드명 = 슬롯 필드명) · `tests/sessions/test_extract_guards.py` 10(만원 변환·금액 백필·치료량 백필·무지 가드·진료내역 문장의 환자 부담금) · `tests/sessions/test_sessions_router.py` 2(HTTP 미리 채우기가 금액·계약 기간을 받는지 · 음수 금액은 422). IE 실측(`receipt__clean.png`): 154,000 = 급여 84,000 + 비급여 70,000. 로컬 도커 실측(김민서 2건, "급여 30만원, 비급여 50만원"): 비교표 삼성 313,730원 / 현대 356,270원 · 둘 다 '높음' · 현대 먼저 청구 추천(이전엔 '중간'·"금액 입력 시"). 경계 페르소나 p13(만기 뒤 진료)·p14(가입 전 진료)를 진료내역 문장 그대로 돌리면 둘 다 보장기간 면책 '낮음'과 제1조(보험기간) 인용이 나온다. E2 전에는 이 규칙이 한 번도 맞지 않았다 |
 | 선행 | C4 · E1 |
-| 완료 | 10/2 구현(미커밋 — `app/domains/sessions/schemas.py` · `service.py` · `llm.py` · `app/domains/coverage/facts.py` · `rules.py` · `engine.py` · `app/domains/attachments/ie_schemas.py` · `frontend/src/pages/app/AppFlow.tsx` · `frontend/src/types/api.ts` + 테스트 4파일). 명세 반영은 아직 — [[INS-DOM-004]](SlotState·PolicyRef 필드) · [[INS-MS-002]](extract_slots 방어·seed 계약 기간) · [[INS-API-002]](seed 본문 `valid_from/valid_to`) |
+| 완료 | 10/2 구현(미커밋 — `app/domains/sessions/schemas.py` · `service.py` · `llm.py` · `app/domains/coverage/facts.py` · `rules.py` · `engine.py` · `app/domains/attachments/ie_schemas.py` · `frontend/src/pages/app/AppFlow.tsx` · `frontend/src/types/api.ts` + 테스트 6파일 · `docs/perf-log.md`). 명세 반영: [[INS-DOM-004]] v3 · [[INS-MS-002]] v4 · [[INS-API-002]] v4 · [[INS-DOM-005]] v5 · [[INS-SEQ-002]] v4 |
 
 #### E3 LLM 호출 견고성
 
@@ -337,12 +338,12 @@ flowchart LR
 | 항목 | 내용 |
 |---|---|
 | 근거 | [[INS-API-002]] 5장 · [[INS-DOM-005#ApiClient]] · [[INS-DOM-005#MydataAdapter]] |
-| 구현 | 에러 본문이 세 모양으로 갈려 화면 클라이언트가 인증·진료내역 에러를 `UNKNOWN`으로 읽는다. 한 모양으로 맞추는 처리기를 둔다. 마이데이터 실연동이 설정되지 않았을 때의 예외가 500이 된다. 진료내역처럼 503 코드로 바꾼다 |
+| 구현 | 에러 본문이 세 모양으로 갈려 화면 클라이언트가 인증·진료내역 에러를 `UNKNOWN`으로 읽는다. 한 모양으로 맞추는 처리기를 둔다. 마이데이터 실연동이 설정되지 않았을 때의 예외가 500이 된다. 진료내역처럼 503 코드로 바꾼다. 미리 채우기 요청이 모르는 칸을 오류 없이 버려, 10/2까지 E2의 새 칸이 조용히 사라졌다. 422로 거절할지 정한다 |
 | 구현 함수 | [[INS-MS-002#MydataAdapter.fetch_insurances]] |
-| API | [[INS-API-002#POST/api/v1/auth/demo-login]] · [[INS-API-002#GET/api/v1/auth/me/insurances]] · [[INS-API-002#GET/api/v1/me/health/history]] |
+| API | [[INS-API-002#POST/api/v1/auth/demo-login]] · [[INS-API-002#GET/api/v1/auth/me/insurances]] · [[INS-API-002#GET/api/v1/me/health/history]] · [[INS-API-002#POST/api/v1/sessions/{session_id}/slots]] |
 | 화면 | [[INS-UI-003#UI-2]] · [[INS-UI-003#UI-8]] |
-| 테스트 | 구현 함수의 테스트 관점 전부 + 에러 코드마다 화면 문구가 맞게 나오는지 |
-| 선행 | C4 · C7 |
+| 테스트 | 구현 함수의 테스트 관점 전부 + 에러 코드마다 화면 문구가 맞게 나오는지 · 미리 채우기에 모르는 칸을 보내면 정한 대로 끝나는지 |
+| 선행 | C3 · C4 · C7 |
 | 완료 | — |
 
 #### E6 적재 원자성과 검색 명령
@@ -428,7 +429,7 @@ flowchart LR
 | 항목 | 내용 |
 |---|---|
 | 근거 | [[INS-DOM-005]] 5장 · [[INS-DOM-006]] 5장 · [[INS-API-002]] 5장 · [[INS-INFRA-002#C1]] · [[INS-INFRA-002#C9]] |
-| 구현 | 쓰이지 않는 함수·빈 라우터·화면이 부르지 않는 클라이언트 함수를 걷는다. 자동차 잔재(`fault_ratio`, 영역 허용값 `auto`·`fire`)와 `docker-compose.neo4j.yml`을 걷는다. 모든 행이 빈 컬럼, 원본보다 짧은 복사 컬럼, 두 번 걸린 이메일 유일성, 섞인 시각 타입, 빈 JSON 값을 마이그레이션으로 맞춘다. `.env.example`에서 OpenAI 키와 사라진 설정을 뺀다. 제품과 무관한 발표 스크립트를 공개 저장소에서 뺀다. 리디자인 뒤 쓰지 않게 된 화면 패턴(사이드 단계 레일·ChatHead·MessageBubble 등, 쇼케이스만 쓴다)을 남길지 정한다 |
+| 구현 | 쓰이지 않는 함수·빈 라우터·화면이 부르지 않는 클라이언트 함수를 걷는다. 자동차 잔재(`fault_ratio`, 영역 허용값 `auto`·`fire`)와 `docker-compose.neo4j.yml`을 걷는다. 모든 행이 빈 컬럼, 원본보다 짧은 복사 컬럼, 두 번 걸린 이메일 유일성, 섞인 시각 타입, 빈 JSON 값을 마이그레이션으로 맞춘다. `.env.example`에서 OpenAI 키와 사라진 설정을 뺀다. 제품과 무관한 발표 스크립트를 공개 저장소에서 뺀다. 리디자인 뒤 아무도 가져오지 않는 대화 패턴 16개(`AppShell`·`StepNavigator`·`ChatHead`·`MessageBubble` 등)를 걷는다. 쇼케이스도 이 패턴을 쓰지 않는다([[INS-DOM-005]] 1.5) |
 | 구현 함수 | — |
 | API | 화면이 쓰지 않는 엔드포인트 10개를 남길지 정한다([[INS-API-002]] 5장) |
 | 화면 | — |
@@ -456,7 +457,7 @@ flowchart LR
 | 시나리오 | 슬라이스 | 검증하는 것 | 최근 결과 |
 |---|---|---|---|
 | [[INS-SCN-002#S1]] | C3 · D3 · D4 | 짧거나 흐트러진 말에도 되묻기보다 판정이 먼저 오는지 — E2E 발화변형 6 · 경계정보부족 1 | 7/30 발화변형 5/6. `style_elderly_speech`가 판정 대신 되묻기로 갔다 |
-| [[INS-SCN-002#S2]] | C3 · C1 · B2 | 보험사만 준 판정의 등급·인용·필수 언급·금지 표현 — E2E 교통사고 3 · 질병통원 3 · 도수치료 3 · 암입원 2 · 경계면책 8 | 7/30 19문항 중 17문항 전부 통과. `traffic_not_workplace` 인용 키워드, `cancer_upper_room` 필수 언급이 모자랐다 |
+| [[INS-SCN-002#S2]] | C3 · C1 · B2 · E2 | 보험사만 준 판정의 등급·인용·필수 언급·금지 표현 — E2E 교통사고 3 · 질병통원 3 · 도수치료 3 · 암입원 2 · 경계면책 8 | 7/30 19문항 중 17문항 전부 통과. `traffic_not_workplace` 인용 키워드, `cancer_upper_room` 필수 언급이 모자랐다. 10/2 로컬 도커에서 경계 페르소나 p13(만기 뒤 진료)·p14(가입 전 진료)가 보장기간 면책 '낮음'으로 나왔다(E2) |
 | [[INS-SCN-002#S3]] | C3 · B2 | 보험사를 모를 때 표준약관 모드와 교차 검색 — E2E 익명표준 3 | 7/30 3/3 |
 | [[INS-SCN-002#S4]] | C2 | 인용 → 원본 페이지·하이라이트·가로 크롭 — `tests/pdfimage` | 10/2 통과. 가로 크롭·보험사 탭 전환은 10/1 리디자인 확인 때 눈으로 봤다 |
 | [[INS-SCN-002#S5]] | C4 · C5 · C6 · E1 · E2 | 로그인 → 서류 → 청구 준비 — `tests/claims` · `tests/attachments` · 서류 추출 벤치 | 10/2 통과(E1 3건 · E2 IE 매핑 4건 포함). 벤치 7/9 1.000(90/90). 서류 항목이 세션에 병합되고(E1) 영수증 급여/비급여가 자기부담 계산으로 간다(E2, fixture 실측 84,000/70,000). 올린 뒤 다음 판정까지 E2E는 아직 |
@@ -470,7 +471,7 @@ flowchart LR
 | [[INS-SCN-002#S13]] | D2 | 인계 패키지 복원 → `ica verify`(청크 2,505 · 4096차원) | 9/22 로더 둘의 복원 라운드트립 검증(인계 문서 기록). 10/1 로컬 SQLite·Chroma·Memgraph(2,525노드)로 도커 백엔드가 검색하는 것 확인 |
 | [[INS-SCN-002#S14]] | B1 | 적재 → `ica verify` → 골든셋 전후 비교 | 7/21 재적재 전후 hit@8 0.844 그대로, mrr@8 0.589 → 0.575 |
 
-- CI 게이트(`.github/workflows/ci.yml`)는 main 푸시·PR마다 `ruff check app tests eval`, `pytest -m "not eval and not pgvector_integration"`, 프론트 `npm ci`·`npm run build`를 돌린다. 10/2 로컬에서 같은 pytest 선택 1,184건이 모두 통과했고 프론트 빌드도 통과했다
+- CI 게이트(`.github/workflows/ci.yml`)는 main 푸시·PR마다 `ruff check app tests eval`, `pytest -m "not eval and not pgvector_integration"`, 프론트 `npm ci`·`npm run build`를 돌린다. 10/2 로컬에서 같은 pytest 선택 1,187건이 모두 통과했고 ruff와 프론트 빌드도 통과했다
 - E2E 견고성 4문항(프롬프트 주입·잘못된 전제·압박·엉뚱한 질문)은 한 시나리오가 아니라 답의 원칙(단정하지 않기·약관 밖 답 거절)을 본다. 7/30 4/4
 - 등급 일관성(같은 질문 3회)은 7/13에 25문항으로 쟀고 등급 역전이 없었다
 - 모델 채점(Bedrock)은 진단용이다. 제품 경로에는 쓰지 않는다([[INS-INFRA-002#C1]])
@@ -483,18 +484,19 @@ flowchart LR
 - 기간은 6/23(`7e09095`, 스프린트 1~20 합본)부터 7/30(`d00e233`)까지다
 - 어느 카드에도 적지 않은 커밋 넷 — `2bde04d` 7/3 저장소 메타데이터 · `c07b6bd` 6/24 디자인 견본 화면 라벨 · `3e32c0b` 7/9 스프린트 기록 · `260c5a6` 7/20 import 정렬
 - 남은 슬라이스(E)의 커밋은 `code(슬라이스): 함수명 — 요약` 형식으로 하고, 완료란에 해시·날짜를 적는다
-- 10/1~10/2 작업은 아직 커밋 전이다. 셋으로 나눠 올린다 — `code(E1): upload_document — 서류 항목을 세션 대화 정보에 병합`(백엔드·테스트·화면 5개 파일) · `feat(front): 화면 리디자인 — 서비스 톤(브랜드·글자 스텝·선 블록·첫 화면·문구)`(프론트 40여 파일 + `docker-compose.local-data.yml`) · `code(E2): build_facts_from_slots — 급여/비급여 금액·계약 기간을 판정에 연결`(백엔드 7개 · 프론트 2개 · 테스트 4개 · `docs/perf-log.md`). 커밋 뒤 이 문서의 완료란에 해시를 적는다
+- 10/1~10/2 작업은 아직 커밋 전이다. 셋으로 나눠 이 순서로 올린다 — ① `code(E1): upload_document — 서류 항목을 세션 대화 정보에 병합`(`app/domains/attachments/router.py` · `frontend/src/hooks/useSession.ts` · `frontend/src/types/api.ts`의 업로드 응답 부분 · 테스트 1개) ② `feat(front): 화면 리디자인 — 서비스 톤(브랜드·글자 스텝·선 블록·첫 화면·문구)`(`frontend/src` 45개 파일 + `docker-compose.local-data.yml`) ③ `code(E2): build_facts_from_slots — 급여/비급여 금액·계약 기간을 판정에 연결`(백엔드 7개 · `types/api.ts`의 대화 정보 네 칸 · `AppFlow.tsx`의 계약 기간 줄 · 테스트 6개 · `docs/perf-log.md`). 두 작업이 섞인 `types/api.ts`와 `AppFlow.tsx`는 hunk 단위로 나눠 담는다. `ChatPage.tsx`는 리디자인이 거의 다시 쓴 파일이라 E1의 첨부 형식 변경(PDF 제외)도 ②에 담긴다. 커밋 뒤 이 문서의 완료란에 해시를 적는다
 
 ## 4. 미결사항
 
 - [ ] **남은 슬라이스 순서** — 사용자에게 보이는 빈 곳(E9 청구 준비)과 운영 위험(E4 요청 한도 · E13 배포 게이트)을 먼저 하기를 권한다. E11·E12는 동작이 바뀌지 않으므로 마지막이다. E1·E2는 끝났다
 - [ ] **E2E 실패 두 문항** — 7/30에 `style_elderly_speech`·`qa_fact_addition_rejudge`가 판정 대신 되묻기로 갔다. 반복 실행으로 흔들림인지 먼저 볼지, 슬라이스로 만들지. 10/2 E2 작업 중 같은 성격의 흔들림(긴 발화에서 입원 일수·금액 누락, 언급 안 한 필드 '모름' 처리)을 실관측해 결정론 방어로 막았다 — 두 문항도 같은 원인일 수 있으니 E2E를 다시 돌려 본다
-- [ ] **E2 명세 되먹임** — [[INS-DOM-004]](SlotState·PolicyRef 새 필드) · [[INS-MS-002]](extract_slots 방어·seed 계약 기간) · [[INS-API-002]](seed 본문 `valid_from/valid_to`, 응답 슬롯 필드)에 아직 안 적었다
+- [x] ~~E2 명세 되먹임~~ — 10/2 [[INS-DOM-004]] v3 · [[INS-MS-002]] v4 · [[INS-API-002]] v4 · [[INS-DOM-005]] v5 · [[INS-SEQ-002]] v4에 적었다. [[INS-DOM-005]]의 `sessions/llm.py` 줄 수만 커밋 기준(1,649줄)으로 남아 E2 뒤 줄 수(1,795줄)로 고친다
+- [ ] **계약 기간의 출처가 둘** — 마이데이터 미리 채우기와 청구서 IE가 대화 정보의 같은 칸을 채우고 나중 값이 덮는데, 비교 판정은 보험마다 마이데이터 값을 쓴다([[INS-SEQ-002]] 3장). 무엇을 우선할지 정하면 E2 후속으로 고친다
 - [ ] **함수 명세에 없는 카드** — B4(ReAct 에이전트)와 D1~D4는 [[INS-MS-002]]에 항목이 없다. 판정 흐름이 부르는 `run_agent`를 함수 명세에 올릴지
 - [ ] **완료 조건 도구** — docstring 항목 ID 대조·시그니처 검사·`check_calls.py`가 이 저장소에 없다. 남은 슬라이스부터 쓸지
 - [ ] **커밋되지 않은 산출물** — 10/1~10/2 E1·E2·D4 코드와 `docker-compose.local-data.yml`·`docs/perf-log.md` 추가분, 7/30 모델 비교 결과와 스크립트(`eval/e2e_judge/`), 인계·Azure·EXAONE 문서(`docs/infra/`)가 저장소에 없다. 성공지표의 7/30 수치가 이 결과 파일에 기대어 있다. 공개 저장소이므로 올리기 전에 비밀값이 없는지 본다. 커밋·contributor에 Claude를 적지 않는다
 - [ ] **라이브 확인** — 라이브가 8/5부터 멈춰 있어 운영 DB 건수 확인을 하지 못했다. 화면은 10/1~10/2 로컬 도커 스택으로 확인했다. main에 올리면 자동 배포로 다시 뜬다
 - [ ] **서버 폴더 위치** — 기본형은 `backend/app/`인데 루트 `app/`이다. 옮기면 Dockerfile·CI·`ica` 진입점·테스트 경로가 함께 바뀐다(E11)
-- [ ] **도움 답 스트리밍** — [[INS-PRD-002#R11]]·[[INS-UC-002#UC-H8]]·[[INS-SCN-002#S8]]은 도움 답이 흘러나오듯 보인다고 적었는데, 코드는 한 번에 받아 통째로 보인다([[INS-SEQ-002]] 2장 8번). E8에 더해 코드를 맞출지, 세 문서에서 그 문장을 뺄지
+- [ ] **도움 답 스트리밍** — [[INS-PRD-002#R11]]·[[INS-UC-002#UC-H8]]·[[INS-SCN-002#S8]]은 도움 답이 흘러나오듯 보인다고 적었는데, 코드는 한 번에 받아 통째로 보인다([[INS-SEQ-002]] 2장 7번). E8에 더해 코드를 맞출지, 세 문서에서 그 문장을 뺄지
 - [ ] **E1·E2 뒤 E2E** — 서류를 올린 뒤 다음 판정이 병합된 항목을 쓰는지, 금액을 말했을 때 분담액이 나오는지 E2E 문항이 없다. 문항을 더하고 7/30 기준선과 함께 다시 돌릴지
 - [ ] **범위 밖으로 둔 것** — HTTPS·도메인([[INS-INFRA-002#C8]])과 여러 백엔드용 세션 저장소([[INS-INFRA-002#C3]])는 슬라이스로 만들지 않았다. 운영 모드를 켜거나 백엔드를 늘릴 때 먼저 정한다
