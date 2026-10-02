@@ -49,6 +49,39 @@ Insurance-Helper/
 └── .env.example · .gitignore · .dockerignore · .gitattributes · README.md
 ```
 
+**층**
+
+함수 단위 명세([[INS-MS-002]] 카드·[[INS-API-002]] 엔드포인트·[[INS-UI-003]] 화면)나 4장 설계 클래스가 없는 코드가 어느 층이고, 그 층을 어느 문서가 정하는지다. 위에서부터 첫 줄이 이긴다. 그래서 좁은 경로를 위에 둔다.
+
+| 경로 | 층 | 명세 |
+|---|---|---|
+| `app/shared/audit/models.py` | ORM 모델 | [[INS-DOM-006#audit_log]] · 2.2 |
+| `app/domains/*/models.py` | ORM 모델 | [[INS-DOM-006]] · 2.1·2.2 |
+| `alembic/**` | 마이그레이션 | [[INS-DOM-006]] |
+| `app/domains/*/crud.py` | DB 접근 | [[INS-DOM-006]] · 4.4 |
+| `app/domains/*/schemas.py` | 요청·응답·메모리 모델 | [[INS-API-002]] 4장 · 2장 |
+| `app/domains/*/router.py` | HTTP 입출력 | [[INS-API-002]] |
+| `app/infrastructure/external/health_data/router.py` | HTTP 입출력 | [[INS-API-002#GET/api/v1/me/health/history]] |
+| `app/infrastructure/core/**` | 설정·DB 세션·예외·로그 | [[INS-INFRA-002]] |
+| `app/infrastructure/llm/**` | LLM 클라이언트·프롬프트 읽기 | [[INS-INFRA-002#C1]] |
+| `prompts/v1/**` | 프롬프트 원문 | [[INS-INFRA-002#C1]] · [[#SessionLlm]] |
+| `app/infrastructure/external/hira/**` | 외부 연동(심평원) | [[INS-INFRA-002]] |
+| `app/infrastructure/external/_common.py` | 외부 연동 공용 | [[INS-INFRA-002]] |
+| `app/shared/tools/**` | ReAct 도구 | [[INS-PRD-002#R23]] |
+| `app/shared/insurers.py` | 보험사 코드·별칭 목록 | [[INS-DOM-004#Insurer]] |
+| `app/interfaces/cli/**` | 운영 입구 | [[INS-UC-002#UC-A2]] · 1.4 |
+| `app/main.py` · `app/__main__.py` | 앱 조립 | [[INS-INFRA-002]] |
+| `frontend/src/styles/**` | 디자인 토큰 | [[INS-UI-003]] 3장 |
+| `frontend/src/design-system/**` | 공용 컴포넌트·패턴 | [[INS-UI-003]] 3장 |
+| `frontend/src/types/**` | 응답 타입 | [[INS-API-002]] 4장 |
+| `frontend/src/hooks/**` | 세션·스트리밍·첨부 상태 | [[INS-UI-003#UI-6]] · [[INS-API-002]] |
+| `frontend/src/components/**` | 두 화면 이상이 쓰는 조각 | [[INS-UI-003]] |
+| `frontend/src/pages/**` | 화면 | [[INS-UI-003]] · 1.5 |
+| `eval/**` | 품질 측정 | [[INS-PRD-002#N6]] · [[INS-UC-002#UC-G2]] |
+| `tests/**` | 테스트 | [[INS-UC-002#UC-G1]] · 1.6 |
+| `nginx/**` · `Dockerfile*` · `docker-compose*.yml` · `.github/workflows/**` · `infra/azure/**` | 배치 | [[INS-INFRA-002]] |
+| `scripts/**` | 기동·점검 스크립트(발표 스크립트 섞임, 5장) | [[INS-INFRA-002]] |
+
 ### 1.1 서버가 루트의 app/에 있다
 
 규약의 기본형은 `backend/app/`이다. 이 저장소는 규약보다 먼저 만들어져 서버가 루트 `app/`에 있다. 화면은 `frontend/`로 나뉘어 있어 의존성 파일이 서로 덮지는 않는다(`pyproject.toml`은 루트, `package.json`은 `frontend/`). 서버만 설정하는 `alembic.ini`·`pyproject.toml`도 같은 이유로 루트에 있다. 옮기면 Dockerfile·CI·`ica` 진입점·테스트 경로가 함께 바뀐다. 옮길지는 5장에 남긴다.
